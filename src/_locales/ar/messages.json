@@ -20,6 +20,18 @@
   "ext_cmd_unsuspend_selected_tabs_description": {
     "message": "إلغاء تعليق علامات التبويب المحددة"
   },
+  "ext_cmd_suspend_tab_group_description": {
+    "message": "تعليق جميع علامات التبويب في مجموعة علامة التبويب النشطة"
+  },
+  "ext_cmd_unsuspend_tab_group_description": {
+    "message": "إلغاء تعليق جميع علامات التبويب في مجموعة علامة التبويب النشطة"
+  },
+  "ext_cmd_suspend_ungrouped_tabs_description": {
+    "message": "تعليق جميع علامات التبويب غير الموجودة في مجموعة في النافذة النشطة"
+  },
+  "ext_cmd_unsuspend_ungrouped_tabs_description": {
+    "message": "إلغاء تعليق جميع علامات التبويب غير الموجودة في مجموعة في النافذة النشطة"
+  },
   "ext_cmd_soft_suspend_active_window_description": {
     "message": "تعليق جميع علامات التبويب الأخرى في النافذة النشطة"
   },
@@ -58,6 +70,18 @@
   },
   "js_context_unsuspend_selected_tabs": {
     "message": "إلغاء تعليق علامات التبويب المحددة"
+  },
+  "js_context_suspend_tab_group": {
+    "message": "تعليق جميع علامات التبويب في هذه المجموعة"
+  },
+  "js_context_unsuspend_tab_group": {
+    "message": "إلغاء تعليق جميع علامات التبويب في هذه المجموعة"
+  },
+  "js_context_suspend_ungrouped_tabs": {
+    "message": "تعليق جميع علامات التبويب غير الموجودة في مجموعة"
+  },
+  "js_context_unsuspend_ungrouped_tabs": {
+    "message": "إلغاء تعليق جميع علامات التبويب غير الموجودة في مجموعة"
   },
   "js_context_soft_suspend_other_tabs_in_window": {
     "message": "تعليق جميع علامات التبويب الأخرى في النافذة النشطة"
@@ -314,6 +338,12 @@
   "html_options_suspend_automatically_after": {
     "message": "تعليق علامات التبويب تلقائياً بعد"
   },
+  "html_options_suspend_on_battery_after": {
+    "message": "أوقف تعليق علامات التبويب عند التشغيل على البطارية بعد"
+  },
+  "html_options_suspend_same_as_ac": {
+    "message": "نفس ما عند الاتصال بمصدر الطاقة"
+  },
   "html_options_suspend_never": {
     "message": "أبدا"
   },
@@ -346,6 +376,9 @@
   },
   "html_options_suspend_no_pinned": {
     "message": "لا تعلق أبداً علامات التبويب الثابتة"
+  },
+  "html_options_suspend_no_app_windows": {
+    "message": "لا تعلق أبداً علامات التبويب المفتوحة في نوافذ التطبيقات"
   },
   "html_options_suspend_no_forms": {
     "message": "لا تعلق أبداً علامات التبويب التي تحتوي على مدخلات نموذج غير محفوظة"
@@ -380,8 +413,41 @@
   "html_options_suspend_no_active_tabs": {
     "message": "عدم تعليق علامة التبويب النشطة أبدا في كل نافذة"
   },
+  "html_options_suspend_no_scroll_pos": {
+    "message": "دائمًا أعد فتح علامات التبويب المعلّقة من أعلى الصفحة"
+  },
+  "html_options_suspend_no_scroll_pos_tooltip_line1a": {
+    "message": "تُعاد فتح علامة التبويب من أعلى الصفحة بدلاً من"
+  },
+  "html_options_suspend_no_scroll_pos_tooltip_line1b": {
+    "message": "الموضع الذي كانت عنده عند التعليق."
+  },
+  "html_options_suspend_no_scroll_pos_tooltip_line2a": {
+    "message": "ينطبق على التعليق التلقائي واليدوي، ويتجاوز الروابط"
+  },
+  "html_options_suspend_no_scroll_pos_tooltip_line2b": {
+    "message": "التي تنتقل إلى قسم (#) عند التحميل."
+  },
   "html_options_suspend_automatically_unsuspend": {
     "message": "إلغاء تعليق علامة التبويب تلقائياً عند عرضها"
+  },
+  "html_options_suspend_reload_unsuspend_background": {
+    "message": "إعادة التحميل تلغي تعليق علامات التبويب في الخلفية أيضاً (وليس فقط علامة التبويب النشطة)"
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line1a": {
+    "message": "عند التفعيل، إعادة تحميل علامة تبويب معلّقة (Ctrl+R أو النقر"
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line1b": {
+    "message": "بزر الفأرة الأيمن ثم إعادة التحميل) تلغي تعليقها حتى لو لم"
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line1c": {
+    "message": "تكن علامة التبويب النشطة حالياً."
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line2a": {
+    "message": "مفيد لإعادة تحميل عدة علامات تبويب معلّقة دفعة واحدة، مثلاً"
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line2b": {
+    "message": "بعد تحديد عدة علامات تبويب والضغط على Ctrl+R."
   },
   "html_options_suspend_discard_after_suspend": {
     "message": "تطبيق توفير الذاكرة المدمج في المتصفح عند التعليق"
@@ -496,6 +562,14 @@
   },
   "html_options_whitelist_tooltip_line3": {
     "message": "يمكنك أيضا تحديد التعبيرات العادية عن طريق إرفاق النص في الخطوط الأمامية:"
+  },
+  "html_options_changelog_modal_title": {
+    "message": "الجديد في الإصدار v$version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
   },
   "html_options_whitelist_close": {
     "message": "إغلاق"
@@ -808,6 +882,9 @@
   },
   "js_popup_pinned": {
     "message": "تم تثبيت علامة التبويب"
+  },
+  "js_popup_app_window": {
+    "message": "علامة التبويب مفتوحة في نافذة تطبيق"
   },
   "js_popup_temp_whitelist": {
     "message": "تعليق علامة التبويب مؤقتاً."

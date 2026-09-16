@@ -1,6 +1,7 @@
 // @ts-check
 import  { gsChrome }              from './gsChrome.js';
 import  { gsFavicon }             from './gsFavicon.js';
+import  { gsIndexedDb }           from './gsIndexedDb.js';
 import  { gsMascot }              from './gsMascot.js';
 import  { gsMessages }            from './gsMessages.js';
 import  { gsSession }             from './gsSession.js';
@@ -15,10 +16,77 @@ import  { faviconResolutionRules } from './fork/faviconResolutionRules.js';
 let _localeMessages = null;
 
 // ── Log buffer ────────────────────────────────────────────────────────────────
-const _LOG_BUFFER_KEY = 'gsLogBuffer';
-const _LOG_BUFFER_MAX = 500;
-const _logBuffer = [];
+// Persisted in IndexedDB (gsIndexedDb.js's DB_LOG_ENTRIES store), one record per entry,
+// not one shared chrome.storage.local blob. Every context (every suspended tab included)
+// flushes its own pending entries directly there instead of funneling through the service
+// worker as the sole writer — IndexedDB gives each entry its own record, so concurrent
+// writers from different contexts never race the way two overlapping reads of one shared
+// blob could, and unlike chrome.storage.local, a write here never fires
+// chrome.storage.onChanged in every other context that happens to have any listener
+// registered for that storage area.
+//
+// That broadcast was the actual mechanism behind a live, reproducible OOM crash under the
+// previous chrome.storage.local design: Crashpad's local minidump (v8-oom-lo-space-size,
+// V8's large-object space, not external/malloc memory) showed dozens of near-duplicate
+// multi-MB JSON-stringified copies of the old buffer alive at once in a single renderer
+// process, one per suspended tab sharing it (Chrome puts every same-origin extension page
+// in one process) — each copy a side effect of Chrome delivering the full oldValue/newValue
+// of every chrome.storage.local.set() touching those keys to every context with an
+// onChanged listener registered for that area (e.g. suspended.js's, present in every
+// suspended tab, for an entirely unrelated setting), regardless of whether that listener's
+// own callback body cared about the keys that changed. The crash recurred at the same
+// ~3.7-4GB ceiling independent of how many suspended tabs happened to be open (28 in one
+// crash, 48-49 in two others), ruling out a simple "N tabs × one favicon each" explanation
+// and pointing at something whose cost scales with how often the buffer is *written*, not
+// with tab count directly. IndexedDB writes have no equivalent cross-context broadcast.
+//
+// Known, accepted limitation — incognito and regular-profile logs no longer share one
+// view: manifest.json declares "incognito": "split", so a regular window and an
+// incognito one run fully separate extension instances, each with their own service
+// worker. chrome.storage.local is *not* partitioned by that split (both instances read
+// and wrote the same buffer under the old design), but IndexedDB is — each partition gets
+// its own separate on-disk database, invisible to the other. A regular debug.html session
+// can no longer see what happened in an incognito window (and clearing one buffer doesn't
+// touch the other's), a real behaviour change from before. Bridging the two isn't
+// practical without reintroducing some form of cross-context broadcast — the exact
+// mechanism this migration exists to eliminate — so this is accepted as-is rather than
+// worked around; if incognito log visibility genuinely matters for a specific report,
+// the debug page needs to be opened from an incognito window to read that partition's own
+// entries.
 let   _flushTimer = null;
+// Entries logged in this context since its last successful flush, not yet confirmed
+// persisted.
+const _pendingEntries = [];
+
+// Guards against the exact race clearLogBuffer()'s own comment describes: another
+// context's _pendingEntries, captured just before a Clear but not yet flushed, landing
+// in IndexedDB right after db.clear() runs and making pre-clear entries reappear. Every
+// flush re-reads this cutoff (small, single-key chrome.storage.local write — not the
+// large shared blob whose broadcast caused the OOM crash documented above; a tiny
+// timestamp fired to every context's onChanged listener is negligible) and drops any
+// entry whose own ts predates it, so a straggler batch from before the clear can never
+// commit after it regardless of flush timing across contexts.
+const CLEARED_AT_KEY = 'gsLogClearedAt';
+// Bounds _pendingEntries against unbounded growth: if IndexedDB stays unavailable while
+// captureLogs is on, every failed flush requeues its batch and every new log call keeps
+// appending more, with nothing else ever shrinking the array — heavy logging in that state
+// can otherwise grow this without limit until Chrome kills the page/worker for memory
+// pressure. Oldest entries are dropped first, since the whole point of captureLogs is
+// capturing what's happening *now*.
+const _PENDING_ENTRIES_MAX = 5000;
+function _capPendingEntries() {
+  if (_pendingEntries.length > _PENDING_ENTRIES_MAX) {
+    _pendingEntries.splice(0, _pendingEntries.length - _PENDING_ENTRIES_MAX);
+  }
+}
+
+// Actions meant only for the service worker (or another internal recipient), sent via
+// a bare chrome.runtime.sendMessage() with no tabId — which Chrome delivers to every
+// listening extension page, not just the intended one. Every page's own
+// messageRequestListener already has to tolerate that and ignore what it doesn't own;
+// checking this set lets a page skip logging entirely for anything in it, rather than
+// logging "ignoring unhandled message" (itself a log call) for a high-frequency action.
+const INTERNAL_MESSAGE_ACTIONS = new Set(['clearLogs', 'checkTabResponsiveness']);
 
 // Cheap djb2-style hash so two favicons of similar length still show up as distinct in
 // the log (a bare length like "[data URL, 812 chars]" can't tell "same icon" from
@@ -49,23 +117,82 @@ function _redactDataUrls(key, value) {
 function _serialize(v) {
   if (v === null || v === undefined) return String(v);
   if (typeof v === 'string') return v;
-  try { return JSON.stringify(v, _redactDataUrls); } catch { return String(v); }
+  try { return JSON.stringify(v, _redactDataUrls); }
+  catch { return String(v); }
 }
 
+// Bounds a single entry's own footprint, independent of _capPendingEntries()'s count cap:
+// that cap only limits how many entries can pile up, not how large any one of them is —
+// a call site that happens to log a huge string or object (not a data: URL, so
+// _redactDataUrls() above doesn't catch it) repeatedly could still push a lot of memory
+// through even a handful of entries. Long messages are truncated rather than dropped, so
+// the log line itself (and its source/level) still shows up in a report.
+const _LOG_MSG_MAX_CHARS = 4000;
+
 function _appendEntry(level, src, parts) {
-  _logBuffer.push({
+  let msg = parts.map(_serialize).join(' ');
+  if (msg.length > _LOG_MSG_MAX_CHARS) {
+    msg = `${msg.slice(0, _LOG_MSG_MAX_CHARS)}… [truncated, ${msg.length} chars total]`;
+  }
+  const entry = {
     ts    : new Date().toISOString(),
     level,
     src   : String(src),
-    msg   : parts.map(_serialize).join(' '),
-  });
-  if (_logBuffer.length > _LOG_BUFFER_MAX) _logBuffer.shift();
+    msg,
+  };
+  _pendingEntries.push(entry);
+  _capPendingEntries();
 }
 
+// error() calls _flushNow() immediately, bypassing _scheduleFlush()'s "only one timer
+// pending" guard, so an error-triggered flush can start while a scheduled one is still
+// in flight. Without serializing them, two overlapping flushes' requeue-on-failure steps
+// could complete in either order — a later completion's unshift() always lands at the
+// front regardless of which batch is actually older, so _capPendingEntries() (which
+// assumes the front is the oldest entries) could then trim the wrong, more recent half.
+// Chaining every call through one promise guarantees each flush's requeue (if any) fully
+// lands before the next one starts.
+let _flushChain = Promise.resolve();
 function _flushNow() {
+  _flushChain = _flushChain.then(_flushNowCore);
+  return _flushChain;
+}
+
+async function _flushNowCore() {
   if (_flushTimer) { clearTimeout(_flushTimer); _flushTimer = null; }
-  if (typeof chrome !== 'undefined' && chrome.storage) {
-    chrome.storage.local.set({ [_LOG_BUFFER_KEY]: JSON.stringify(_logBuffer) });
+  if (_pendingEntries.length === 0) return;
+  // Grab-and-clear rather than read-then-clear, so entries logged while this flush is
+  // still in flight stay queued for the next one instead of being dropped.
+  const toPersist = _pendingEntries.splice(0, _pendingEntries.length);
+  if (typeof chrome === 'undefined' || !chrome.storage) return; // no persistence surface here
+  try {
+    // Re-read on every flush rather than caching: this context's own last clear (or
+    // another context's, since the key is shared) may have happened after this batch's
+    // entries were logged but before this flush ran.
+    let clearedAt = 0;
+    try {
+      const stored = await chrome.storage.local.get(CLEARED_AT_KEY);
+      clearedAt = stored[CLEARED_AT_KEY] || 0;
+    } catch { /* treat as no clear on record */ }
+    const filtered = clearedAt
+      ? toPersist.filter(entry => new Date(entry.ts).getTime() > clearedAt)
+      : toPersist;
+    // Trimming the store back down to its cap is deliberately not triggered from here —
+    // every context (every suspended tab included) flushing to this store has its own
+    // module instance of this file, so a per-context throttle still meant dozens of pages
+    // could each independently decide "trim needed" on their own first flush after a
+    // restore burst, producing dozens of concurrent 10,000-key scans and delete
+    // transactions of its own. gsIndexedDb.js's syncLogTrimAlarm() (called once from
+    // background.js's own init) runs it on a single periodic chrome.alarms schedule
+    // instead, decoupled entirely from how often, or from where, entries get logged.
+    await gsIndexedDb.addLogEntries(filtered);
+  }
+  catch {
+    // IndexedDB unavailable or a transaction failure — requeue and retry on the next
+    // scheduled flush rather than discarding captured diagnostic history.
+    _pendingEntries.unshift(...toPersist);
+    _capPendingEntries();
+    _scheduleFlush();
   }
 }
 
@@ -76,6 +203,7 @@ function _scheduleFlush() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const gsUtils = {
+  INTERNAL_MESSAGE_ACTIONS,
   STATUS_NORMAL         : 'normal',
   STATUS_LOADING        : 'loading',
   STATUS_SPECIAL        : 'special',
@@ -88,6 +216,7 @@ export const gsUtils = {
   STATUS_ACTIVE         : 'active',
   STATUS_TEMPWHITELIST  : 'tempWhitelist',
   STATUS_PINNED         : 'pinned',
+  STATUS_APP_WINDOW     : 'appWindow',
   STATUS_WHITELISTED    : 'whitelisted',
   STATUS_CHARGING       : 'charging',
   STATUS_NOCONNECTIVITY : 'noConnectivity',
@@ -98,7 +227,7 @@ export const gsUtils = {
   captureLogs : false,
 
   contains(array, value) {
-    for (var i = 0; i < array.length; i++) {
+    for (let i = 0; i < array.length; i++) {
       if (array[i] === value) return true;
     }
     return false;
@@ -114,7 +243,7 @@ export const gsUtils = {
     args = args || [];
     if (gsUtils.debugInfo) {
       // eslint-disable-next-line no-console
-      console.log(id, (new Date() + '').split(' ')[4], text, ...args);
+      console.log(id, (`${new Date()  }`).split(' ')[4], text, ...args);
     }
     if (gsUtils.captureLogs) {
       _appendEntry('I', id, [text, ...args]);
@@ -122,7 +251,11 @@ export const gsUtils = {
     }
   },
   highlight(text, ...args) {
-    gsUtils.log('highlight: %s %c%s', 'color:red', text, ...args);
+    // The console.log path in log() is gated behind gsUtils.debugInfo, which nothing ever
+    // enables — the only live sink is the captured log buffer, which does no printf-style
+    // %s/%c substitution. Passing a console format string here just leaked a literal
+    // "highlight: %s %c%s" + "color:red" into every buffered line for no benefit.
+    gsUtils.log('highlight', text, ...args);
   },
   warning(id, text, ...args) {
     args = args || [];
@@ -134,7 +267,7 @@ export const gsUtils = {
         .filter((o) => !ignores.find((p) => o.indexOf(p) >= 0))
         .join('\n');
       // eslint-disable-next-line no-console
-      console.warn('WARNING:', id, (new Date() + '').split(' ')[4], text, ...args, `\n${errorLine}`);
+      console.warn('WARNING:', id, (`${new Date()  }`).split(' ')[4], text, ...args, `\n${errorLine}`);
     }
     if (gsUtils.captureLogs || gsUtils.debugError) {
       _appendEntry('W', id, [text, ...args]);
@@ -147,17 +280,17 @@ export const gsUtils = {
       id = '?';
     }
     //NOTE: errorObj may be just a string :/
-    const errorMessage = errorObj && errorObj.hasOwnProperty && errorObj.hasOwnProperty('message')
+    const errorMessage = errorObj?.hasOwnProperty?.('message')
       ? errorObj.message
       : typeof errorObj === 'string'
         ? errorObj
         : JSON.stringify(errorObj, null, 2);
     if (gsUtils.debugError) {
-      const stackTrace = errorObj && errorObj.hasOwnProperty && errorObj.hasOwnProperty('stack')
+      const stackTrace = errorObj?.hasOwnProperty?.('stack')
         ? errorObj.stack
         : gsUtils.getStackTrace();
       // eslint-disable-next-line no-console
-      console.log(id, (new Date() + '').split(' ')[4], 'Error:');
+      console.log(id, (`${new Date()  }`).split(' ')[4], 'Error:');
       // eslint-disable-next-line no-console
       console.error(
         gsUtils.getPrintableError(errorMessage, stackTrace, ...args),
@@ -175,7 +308,7 @@ export const gsUtils = {
     return errorString;
   },
   getStackTrace() {
-    var obj = {};
+    const obj = {};
     if ('captureStackTrace' in Error && typeof Error.captureStackTrace === 'function') {
       Error.captureStackTrace(obj, gsUtils.getStackTrace);
       return obj.stack;
@@ -209,15 +342,33 @@ export const gsUtils = {
     }
   },
 
-  getLogBuffer() {
-    return _logBuffer.slice();
-  },
-
-  clearLogBuffer() {
-    _logBuffer.length = 0;
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.remove([_LOG_BUFFER_KEY]);
+  // Called from background.js's 'clearLogs' case (reached by messaging from the debug
+  // page) — kept as a message rather than debug.js calling gsIndexedDb directly, so the
+  // service worker's own not-yet-flushed _pendingEntries get dropped too, not just this
+  // context's. Any context could safely write to gsIndexedDb directly now (unlike the old
+  // chrome.storage.local design, IndexedDB needs no single designated writer), but another
+  // context's own _pendingEntries — captured just before the clear and not yet flushed —
+  // could still land afterward without the cutoff written here: CLEARED_AT_KEY is set
+  // first, so every flush from here on (this context's and every other's) drops any
+  // entry timestamped before it, closing the race rather than just shrinking it.
+  //
+  // The cutoff write is a prerequisite, not best-effort: proceeding to clear IndexedDB
+  // without it landing leaves every other context's pre-clear stragglers free to
+  // repopulate the store on their next flush, silently reopening the exact race this
+  // exists to close. debug.js's "Clear log" button already surfaces a false return value
+  // as "clear failed" rather than assuming success, so failing here (without touching
+  // IndexedDB at all) is the accurate outcome, not a regression.
+  async clearLogBuffer() {
+    const clearedAt = Date.now();
+    if (typeof chrome === 'undefined' || !chrome.storage) return false;
+    try {
+      await chrome.storage.local.set({ [CLEARED_AT_KEY]: clearedAt });
+    } catch (e) {
+      gsUtils.error('gsUtils', 'clearLogBuffer: failed to persist clearedAt cutoff', e);
+      return false;
     }
+    _pendingEntries.length = 0;
+    return gsIndexedDb.clearLogEntries();
   },
 
   isDiscardedTab(tab) {
@@ -325,6 +476,36 @@ export const gsUtils = {
   isProtectedActiveTab: async (tab) => {
     const ignoreActiveTabs = await gsStorage.getOption(gsStorage.IGNORE_ACTIVE_TABS);
     return ( await tgs.isCurrentFocusedTab(tab) || (ignoreActiveTabs && tab.active) );
+  },
+
+  // #154: covers both "Create Shortcut → Open as window" and an installed PWA
+  // ("Install <site>" from the address bar) — both open in a chrome.windows window of
+  // type 'app', not 'normal'. Deliberately not extended to 'popup': that also catches a
+  // site's own transient window.open() popups, which aren't the "app-like tool I keep
+  // open" case this option exists for. tab itself carries no window-type property, so
+  // this needs its own chrome.windows.get() rather than reading straight off tab like
+  // the sibling isProtectedXxxTab() checks above.
+  //
+  // Kept separate from isProtectedAppWindowTab() below (which also gates on the setting
+  // being on) so performPostSaveUpdates()'s timer-reset predicate can ask "is this tab in
+  // an app window" on its own — the setting there has *already* flipped to its new value
+  // by the time that predicate runs, so re-checking through isProtectedAppWindowTab()
+  // would just re-read the same already-off setting and always report false, the same
+  // gap a Codex review round caught: disabling this option never re-armed a timer that
+  // had already fired and been rejected while the tab was still protected.
+  isTabInAppWindow: async (tab) => {
+    try {
+      const win = await chrome.windows.get(tab.windowId);
+      return win.type === 'app';
+    } catch (e) {
+      // Window already closed/gone by the time this ran — not a real app window to protect.
+      return false;
+    }
+  },
+
+  isProtectedAppWindowTab: async (tab) => {
+    const ignoreAppWindows = await gsStorage.getOption(gsStorage.IGNORE_APP_WINDOWS);
+    return ignoreAppWindows && await gsUtils.isTabInAppWindow(tab);
   },
 
   // Note: Normal tabs may be in a discarded state
@@ -440,10 +621,10 @@ export const gsUtils = {
         whitelistItems.splice(i, 1);
       }
     }
-    var whitelistString = whitelistItems.join('\n');
+    const whitelistString = whitelistItems.join('\n');
     await gsStorage.setOptionAndSync(gsStorage.WHITELIST, whitelistString);
 
-    var key = gsStorage.WHITELIST;
+    const key = gsStorage.WHITELIST;
     gsUtils.performPostSaveUpdates(
       [key],
       { [key]: oldWhitelistString },
@@ -480,7 +661,7 @@ export const gsUtils = {
 
   saveToWhitelist: async (newString) => {
     const oldWhitelistString = (await gsStorage.getOption(gsStorage.WHITELIST)) || '';
-    let newWhitelistString = oldWhitelistString + '\n' + newString;
+    let newWhitelistString = `${oldWhitelistString  }\n${  newString}`;
     newWhitelistString = gsUtils.cleanupWhitelist(newWhitelistString);
     await gsStorage.setOptionAndSync(gsStorage.WHITELIST, newWhitelistString);
 
@@ -493,7 +674,7 @@ export const gsUtils = {
   },
 
   cleanupWhitelist(whitelist) {
-    var whitelistItems = whitelist ? whitelist.split(/[\s\n]+/).sort() : '',
+    let whitelistItems = whitelist ? whitelist.split(/[\s\n]+/).sort() : '',
       i,
       j;
 
@@ -536,13 +717,14 @@ export const gsUtils = {
       const url = chrome.runtime.getURL(`_locales/${locale}/messages.json`);
       const response = await fetch(url);
       _localeMessages = response.ok ? await response.json() : null;
-    } catch (e) {
+    }
+    catch (e) {
       _localeMessages = null;
     }
   },
 
   initSelectArrows(parentEl) {
-    parentEl.querySelectorAll('.select-wrapper select').forEach(sel => {
+    parentEl.querySelectorAll('.select-wrapper select').forEach((sel) => {
       const wrapper = sel.closest('.select-wrapper');
       sel.addEventListener('focus',     () => wrapper.classList.add('is-open'));
       sel.addEventListener('blur',      () => wrapper.classList.remove('is-open'));
@@ -554,7 +736,7 @@ export const gsUtils = {
   },
 
   getMessage(key, substitutions) {
-    if (_localeMessages && _localeMessages[key]) {
+    if (_localeMessages?.[key]) {
       const entry = _localeMessages[key];
       let msg = entry.message || '';
       if (substitutions !== undefined && entry.placeholders) {
@@ -574,7 +756,7 @@ export const gsUtils = {
   localiseHtml(parentEl) {
     const replaceTagFunc = function(match, p1) {
       if (!p1) return '';
-      if (_localeMessages && _localeMessages[p1]) return _localeMessages[p1].message || '';
+      if (_localeMessages?.[p1]) return _localeMessages[p1].message || '';
       return chrome.i18n.getMessage(p1) || '';
     };
     for (const el of parentEl.getElementsByTagName('*')) {
@@ -606,12 +788,32 @@ export const gsUtils = {
   setPageTheme(win, theme) {
     if (win.document?.body) {
       // Set theme
+      const isExplicit = theme !== 'system';
       if (theme === 'system') {
         const isDark = win.matchMedia('(prefers-color-scheme: dark)').matches;
         theme = isDark ? 'dark' : 'light';
       }
       win.document.body.classList.remove('dark', 'light');
       win.document.body.classList.add(theme);
+      // Mirrors an *explicit* dark/light override into localStorage, the one
+      // synchronous, pre-paint storage API a suspended page has — criticalTheme.js
+      // reads this cache before critical.css's background rules are ever evaluated, so
+      // the override still paints correctly on first paint instead of only correcting
+      // itself after this async call runs. Deliberately not cached for 'system' (a
+      // Codex review round caught this): that resolves through the OS's live
+      // prefers-color-scheme, which can change on its own (e.g. a scheduled night
+      // theme) — caching its *current* resolution would go stale the next time the OS
+      // flips, and this same higher-specificity cache class would then override the
+      // now-correct, always-live media query in critical.css. Any stale cache from a
+      // previous explicit override is cleared here too, so switching the setting back
+      // to 'system' hands paint back to the media query immediately.
+      try {
+        if (isExplicit) {
+          win.localStorage.setItem('gsCachedTheme', theme);
+        } else {
+          win.localStorage.removeItem('gsCachedTheme');
+        }
+      } catch { /* localStorage unavailable — criticalTheme.js falls back to OS preference */ }
     }
   },
 
@@ -623,7 +825,7 @@ export const gsUtils = {
     await gsMascot.applyToDocument(win.document);
 
     const vEl = win.document.getElementById('headerVersion');
-    if (vEl) vEl.textContent = 'v' + chrome.runtime.getManifest().version;
+    if (vEl) vEl.textContent = `v${  chrome.runtime.getManifest().version}`;
 
     if (win.document?.body) {
       const theme = await gsStorage.getOption(gsStorage.THEME);
@@ -640,8 +842,8 @@ export const gsUtils = {
     const encodedFavIconUrl = faviconResolutionRules.shouldEmbedSource(url, favIconUrl)
       ? `&favi=${gsUtils.encodeString(favIconUrl)}`
       : '';
-    var args = `#ttl=${encodedTitle}&pos=${scrollPos || '0'}${encodedFavIconUrl}&uri=${url}`;
-    return chrome.runtime.getURL('suspended.html' + args);
+    const args = `#ttl=${encodedTitle}&pos=${scrollPos || '0'}${encodedFavIconUrl}&uri=${url}`;
+    return chrome.runtime.getURL(`suspended.html${args}`);
   },
 
   /**
@@ -693,7 +895,7 @@ export const gsUtils = {
     }
     else {
       // remove query string
-      var match = rootUrlStr.match(/\/?[?#]+/);
+      let match = rootUrlStr.match(/\/?[?#]+/);
       if (match) {
         rootUrlStr = rootUrlStr.substring(0, match.index);
       }
@@ -712,7 +914,7 @@ export const gsUtils = {
   },
 
   getHashVariable(key, urlStr) {
-    var valuesByKey = {},
+    let valuesByKey = {},
       keyPairRegEx = /^(.+)=(.+)/,
       hashStr;
 
@@ -735,7 +937,7 @@ export const gsUtils = {
     }
 
     hashStr.split('&').forEach((keyPair) => {
-      if (keyPair && keyPair.match(keyPairRegEx)) {
+      if (keyPair?.match(keyPairRegEx)) {
         valuesByKey[keyPair.replace(keyPairRegEx, '$1')] = keyPair.replace(
           keyPairRegEx,
           '$2',
@@ -839,12 +1041,12 @@ export const gsUtils = {
   },
 
   getChromeVersion() {
-    var raw = navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./);
+    const raw = navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./);
     return raw ? parseInt(raw[2], 10) : false;
   },
 
   generateHashCode(text) {
-    var hash = 0,
+    let hash = 0,
       i,
       chr,
       len;
@@ -870,10 +1072,11 @@ export const gsUtils = {
         }
 
         if (gsUtils.isSuspendedTab(tab)) {
-          //If toggling IGNORE_PINNED or IGNORE_ACTIVE_TABS to TRUE, then unsuspend any suspended pinned/active tabs
+          //If toggling IGNORE_PINNED, IGNORE_ACTIVE_TABS or IGNORE_APP_WINDOWS to TRUE, then unsuspend any suspended pinned/active/app-window tabs
           if (
             (changedSettingKeys.includes(gsStorage.IGNORE_PINNED) && (await gsUtils.isProtectedPinnedTab(tab))) ||
-            (changedSettingKeys.includes(gsStorage.IGNORE_ACTIVE_TABS) && (await gsUtils.isProtectedActiveTab(tab)))
+            (changedSettingKeys.includes(gsStorage.IGNORE_ACTIVE_TABS) && (await gsUtils.isProtectedActiveTab(tab))) ||
+            (changedSettingKeys.includes(gsStorage.IGNORE_APP_WINDOWS) && (await gsUtils.isProtectedAppWindowTab(tab)))
           ) {
             await tgs.unsuspendTab(tab);
             continue;
@@ -890,6 +1093,15 @@ export const gsUtils = {
           }
 
           // if theme or screenshot preferences have changed then refresh suspended tabs
+          // Known, accepted limitation (Codex review round, PR #477): the 'updateTheme'
+          // message below only reaches a tab whose suspended.html context is currently
+          // alive (contextGetByTabId() below), which is also the only way anything can
+          // write to setPageTheme()'s localStorage pre-paint cache — MV3 service workers
+          // (this code) have no localStorage of their own to refresh it directly. A
+          // synced theme change landing while a given suspended tab isn't currently
+          // loaded leaves that tab's cache stale until it's next reactivated, one
+          // self-correcting flash at that point via the normal async setTheme() call,
+          // same as this cache's baseline behaviour before it existed at all.
           const updateTheme = changedSettingKeys.includes(gsStorage.THEME);
           const updatePreviewMode = changedSettingKeys.includes(gsStorage.SCREEN_CAPTURE);
           if (updateTheme || updatePreviewMode) {
@@ -946,9 +1158,11 @@ export const gsUtils = {
           //update suspend timers
           const updateSuspendTime =
             changedSettingKeys.includes(gsStorage.SUSPEND_TIME) ||
+            (changedSettingKeys.includes(gsStorage.SUSPEND_TIME_ON_BATTERY) && (await tgs.isCharging()) === false) ||
             (changedSettingKeys.includes(gsStorage.IGNORE_ACTIVE_TABS) && tab.active) ||
             (changedSettingKeys.includes(gsStorage.IGNORE_PINNED) && !settings[gsStorage.IGNORE_PINNED] && tab.pinned) ||
             (changedSettingKeys.includes(gsStorage.IGNORE_AUDIO) && !settings[gsStorage.IGNORE_AUDIO] && tab.audible) ||
+            (changedSettingKeys.includes(gsStorage.IGNORE_APP_WINDOWS) && !settings[gsStorage.IGNORE_APP_WINDOWS] && await gsUtils.isTabInAppWindow(tab)) ||
             (changedSettingKeys.includes(gsStorage.IGNORE_WHEN_OFFLINE) && !settings[gsStorage.IGNORE_WHEN_OFFLINE] && !navigator.onLine) ||
             (changedSettingKeys.includes(gsStorage.IGNORE_WHEN_CHARGING) && !settings[gsStorage.IGNORE_WHEN_CHARGING] && await tgs.isCharging()) ||
             (changedSettingKeys.includes(gsStorage.WHITELIST) &&
@@ -1008,7 +1222,7 @@ export const gsUtils = {
   },
 
   getWindowFromSession(windowId, session) {
-    var window = false;
+    let window = false;
     session.windows.some((curWindow) => {
       //leave this as a loose matching as sometimes it is comparing strings. other times ints
       if (curWindow.id == windowId) {
@@ -1020,11 +1234,11 @@ export const gsUtils = {
   },
 
   removeInternalUrlsFromSession(session) {
-    if (!session || !session.windows) { return; }
-    for (var i = session.windows.length - 1; i >= 0; i--) {
-      var curWindow = session.windows[i];
-      for (var j = curWindow.tabs.length - 1; j >= 0; j--) {
-        var curTab = curWindow.tabs[j];
+    if (!session?.windows) { return; }
+    for (let i = session.windows.length - 1; i >= 0; i--) {
+      const curWindow = session.windows[i];
+      for (let j = curWindow.tabs.length - 1; j >= 0; j--) {
+        const curTab = curWindow.tabs[j];
         if (gsUtils.isInternalTab(curTab)) {
           curWindow.tabs.splice(j, 1);
         }
@@ -1036,22 +1250,22 @@ export const gsUtils = {
   },
 
   getSimpleDate(date) {
-    var d = new Date(date);
+    const d = new Date(date);
     return (
-      ('0' + d.getDate()).slice(-2) +
-      '-' +
-      ('0' + (d.getMonth() + 1)).slice(-2) +
-      '-' +
-      d.getFullYear() +
-      ' ' +
-      ('0' + d.getHours()).slice(-2) +
-      ':' +
-      ('0' + d.getMinutes()).slice(-2)
+      `${(`0${  d.getDate()}`).slice(-2)
+      }-${
+        (`0${  d.getMonth() + 1}`).slice(-2)
+      }-${
+        d.getFullYear()
+      } ${
+        (`0${  d.getHours()}`).slice(-2)
+      }:${
+        (`0${  d.getMinutes()}`).slice(-2)}`
     );
   },
 
   getHumanDate(date) {
-    var monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
       d = new Date(date),
       currentDate = d.getDate(),
       currentMonth = d.getMonth(),
@@ -1059,19 +1273,19 @@ export const gsUtils = {
       currentHours = d.getHours(),
       currentMinutes = d.getMinutes();
 
-    var AMPM = currentHours >= 12 ? 'pm' : 'am';
-    var hoursString = currentHours % 12 || 12;
-    var minutesString = ('0' + currentMinutes).slice(-2);
+    const AMPM = currentHours >= 12 ? 'pm' : 'am';
+    const hoursString = currentHours % 12 || 12;
+    const minutesString = (`0${  currentMinutes}`).slice(-2);
 
     return ( `${currentDate} ${monthNames[currentMonth]} ${currentYear} ${hoursString}:${minutesString}${AMPM}`);
   },
 
   debounce(func, wait) {
-    var timeout;
+    let timeout;
     return () => {
-      var context = this,
+      const context = this,
         args = arguments;
-      var later = function() {
+      const later = function() {
         timeout = null;
         func.apply(context, args);
       };
@@ -1104,3 +1318,29 @@ export const gsUtils = {
     return await retryFn(0);
   },
 };
+
+// Every page (and the service worker) gets its own module instance and therefore its own
+// copy of gsUtils.captureLogs — restoring the persisted flag only in background.js (as
+// this used to do) meant every other context's warning()/log() calls never buffered
+// anything even with captureLogs enabled, since each of those contexts' own captureLogs
+// stayed at the hardcoded false default. Restoring it here instead of duplicating this
+// in every page's own script covers all of them, including the service worker itself,
+// with one copy of the logic. Runs on every module load (not just once per browser
+// session), since the service worker's own in-memory flag also resets on every recycle.
+if (typeof chrome !== 'undefined' && chrome.storage) {
+  chrome.storage.local.get(['gsCaptureVerbose'], (result) => {
+    if (result.gsCaptureVerbose) gsUtils.captureLogs = true;
+  });
+  // The above only covers this module instance's state at load time. Toggling captureLogs
+  // on the debug page only messages the service worker directly (background.js's
+  // 'setCaptureLogs' case); it doesn't reach any options/suspended/etc. page already open
+  // at the time, which would otherwise keep whatever value it loaded with until reloaded.
+  // Every context already has a storage listener available for free, so keeping every
+  // instance in sync live is just reading the new value here instead of also having to
+  // route a message to every possible open page.
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && 'gsCaptureVerbose' in changes) {
+      gsUtils.captureLogs = !!changes.gsCaptureVerbose.newValue;
+    }
+  });
+}

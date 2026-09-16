@@ -7,7 +7,7 @@
     "build": "grunt",
     "lint": "eslint .",
     "generate-key": "openssl genrsa -out key.pem",
-    "test": "node --experimental-default-type=module --test",
+    "test": "node --test tests/*.test.js",
     "check-locales": "node scripts/check-locales.js",
     "eslint-check": "eslint --print-config .eslintrc.js | eslint-config-prettier-check"
   },
@@ -48,7 +48,8 @@
   },
   "overrides": {
     "grunt": {
-      "js-yaml": "^3.15.0"
-    }
+      "js-yaml": "^3.15.1"
+    },
+    "js-yaml": "^4.3.1"
   }
 }

@@ -1,3 +1,4 @@
+import  { gsChangelog }           from './gsChangelog.js';
 import  { gsChrome }              from './gsChrome.js';
 import  { gsMascot }              from './gsMascot.js';
 import  { gsNewsFeed }            from './gsNewsFeed.js';
@@ -13,18 +14,22 @@ import  { gsUtils }               from './gsUtils.js';
     onlineCheck: gsStorage.IGNORE_WHEN_OFFLINE,
     batteryCheck: gsStorage.IGNORE_WHEN_CHARGING,
     unsuspendOnFocus: gsStorage.UNSUSPEND_ON_FOCUS,
+    reloadUnsuspendBackground: gsStorage.RELOAD_UNSUSPEND_BACKGROUND,
     claimByDefault: gsStorage.CLAIM_BY_DEFAULT,
     discardAfterSuspend: gsStorage.DISCARD_AFTER_SUSPEND,
     appendUrlToTitle:    gsStorage.APPEND_URL_TO_TITLE,
     addYouTubeTimestamp: gsStorage.ADD_YOUTUBE_TIMESTAMP,
     dontSuspendPinned: gsStorage.IGNORE_PINNED,
+    dontSuspendAppWindows: gsStorage.IGNORE_APP_WINDOWS,
     dontSuspendForms: gsStorage.IGNORE_FORMS,
     dontSuspendAudio: gsStorage.IGNORE_AUDIO,
     dontSuspendActiveTabs: gsStorage.IGNORE_ACTIVE_TABS,
+    dontRestoreScrollPos: gsStorage.IGNORE_SCROLL_POS,
     ignoreCache: gsStorage.IGNORE_CACHE,
     addContextMenu: gsStorage.ADD_CONTEXT,
     syncSettings: gsStorage.SYNC_SETTINGS,
     timeToSuspend: gsStorage.SUSPEND_TIME,
+    timeToSuspendOnBattery: gsStorage.SUSPEND_TIME_ON_BATTERY,
     theme: gsStorage.THEME,
     legacyMascot: gsStorage.LEGACY_MASCOT,
     language: gsStorage.LANGUAGE,
@@ -62,11 +67,47 @@ import  { gsUtils }               from './gsUtils.js';
       setSyncNoteVisibility(!settings[gsStorage.SYNC_SETTINGS]);
 
       const searchParams = new URL(location.href).searchParams;
-      if (searchParams.has('firstTime')) {
+      const isFirstTime = searchParams.has('firstTime');
+      if (isFirstTime) {
         document
           .querySelector('.welcome-message')
           .classList.remove('reallyHidden');
         document.querySelector('#options-heading').classList.add('reallyHidden');
+      }
+
+      maybeShowChangelogModal(isFirstTime);
+    });
+  }
+
+  // Shows the current version's changelog once per version, in a dismissible modal.
+  // Skipped on a brand-new install (nothing to announce yet).
+  async function maybeShowChangelogModal(isFirstTime) {
+    const curVersion = chrome.runtime.getManifest().version;
+    if (isFirstTime) {
+      gsStorage.setLastSeenChangelogVersion(curVersion);
+      return;
+    }
+
+    const lastSeenVersion = await gsStorage.fetchLastSeenChangelogVersion();
+    if (lastSeenVersion === curVersion) return;
+
+    const modal = document.getElementById('changelogModal');
+    const title = document.getElementById('changelogModalTitle');
+    const body  = document.getElementById('changelogModalBody');
+
+    const found = await gsChangelog.renderVersionChangelog(body, curVersion);
+    gsStorage.setLastSeenChangelogVersion(curVersion);
+    if (!found) return;
+
+    title.textContent = chrome.i18n.getMessage('html_options_changelog_modal_title', [curVersion]);
+    modal.classList.remove('hidden');
+
+    document.getElementById('changelogModalClose').onclick = () => {
+      modal.classList.add('hidden');
+    };
+    modal.addEventListener('click', (event) => {
+      if (event.target.id === 'changelogModal') {
+        modal.classList.add('hidden');
       }
     });
   }
@@ -240,7 +281,16 @@ import  { gsUtils }               from './gsUtils.js';
   }
 
 
-  async function messageRequestListener(request, sender, sendResponse) {
+  function messageRequestListener(request, sender, sendResponse) {
+    // Declared synchronous (not async) so this decline is a real, immediate `false`
+    // return rather than a resolved Promise: an async function's `return false` is
+    // still a Promise, and Chrome/Firefox treat a returned Promise as this listener's
+    // eventual response, letting its trivial resolved value race the service worker's
+    // real, slower response for actions like 'checkTabResponsiveness'.
+    // These are meant only for the service worker, delivered here too because Chrome
+    // broadcasts any chrome.runtime.sendMessage() with no tabId to every extension page.
+    if (gsUtils.INTERNAL_MESSAGE_ACTIONS.has(request.action)) return false;
+
     gsUtils.log('options', 'messageRequestListener', request.action, request, sender);
 
     switch (request.action) {
@@ -248,18 +298,27 @@ import  { gsUtils }               from './gsUtils.js';
       // { action: 'initSettings', tab: focusedTab }
       case 'initSettings': {
         initSettings();
-        break;
+        // This function is synchronous, so no longer returns a Promise Chrome could use
+        // as the response (that's the whole point of the sync-decline fix above) —
+        // sendResponse() must be called explicitly here, or a sender awaiting a response
+        // (e.g. tgs.js's handleNewStationaryTabFocus() awaiting 'initSettings' before
+        // resetting the previous tab's suspend timer) would hang until the message
+        // channel itself eventually tears down.
+        sendResponse();
+        return true;
       }
 
       default: {
-        // NOTE: All messages sent to chrome.runtime will be delivered here too
+        // NOTE: All messages sent to chrome.runtime will be delivered here too. A real
+        // `false` decline (not a response) matters here too: another extension page's
+        // own action (e.g. debug.js's 'repairFavicons', handled only in background.js)
+        // must be free to have its real, slower response win, not get shadowed by this
+        // page unconditionally answering with `undefined` for an action it doesn't own.
         gsUtils.log('options', 'messageRequestListener', `Ignoring unhandled message: ${request.action}`);
-        // sendResponse();
-        break;
+        return false;
       }
 
     }
-    return true;
   }
 
 

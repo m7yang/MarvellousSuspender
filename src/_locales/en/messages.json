@@ -20,6 +20,18 @@
   "ext_cmd_unsuspend_selected_tabs_description": {
     "message": "Unsuspend selected tabs"
   },
+  "ext_cmd_suspend_tab_group_description": {
+    "message": "Suspend all tabs in the active tab's group"
+  },
+  "ext_cmd_unsuspend_tab_group_description": {
+    "message": "Unsuspend all tabs in the active tab's group"
+  },
+  "ext_cmd_suspend_ungrouped_tabs_description": {
+    "message": "Suspend all tabs not in a group in active window"
+  },
+  "ext_cmd_unsuspend_ungrouped_tabs_description": {
+    "message": "Unsuspend all tabs not in a group in active window"
+  },
   "ext_cmd_soft_suspend_active_window_description": {
     "message": "Suspend all other tabs in active window"
   },
@@ -58,6 +70,18 @@
   },
   "js_context_unsuspend_selected_tabs": {
     "message": "Unsuspend selected tabs"
+  },
+  "js_context_suspend_tab_group": {
+    "message": "Suspend all tabs in this group"
+  },
+  "js_context_unsuspend_tab_group": {
+    "message": "Unsuspend all tabs in this group"
+  },
+  "js_context_suspend_ungrouped_tabs": {
+    "message": "Suspend all tabs not in a group"
+  },
+  "js_context_unsuspend_ungrouped_tabs": {
+    "message": "Unsuspend all tabs not in a group"
   },
   "js_context_soft_suspend_other_tabs_in_window": {
     "message": "Suspend all other tabs in this window"
@@ -314,6 +338,12 @@
   "html_options_suspend_automatically_after": {
     "message": "Automatically suspend tabs after"
   },
+  "html_options_suspend_on_battery_after": {
+    "message": "Suspend tabs on battery power after"
+  },
+  "html_options_suspend_same_as_ac": {
+    "message": "Same as when plugged in"
+  },
   "html_options_suspend_never": {
     "message": "Never"
   },
@@ -346,6 +376,9 @@
   },
   "html_options_suspend_no_pinned": {
     "message": "Never suspend pinned tabs"
+  },
+  "html_options_suspend_no_app_windows": {
+    "message": "Never suspend tabs opened in app windows"
   },
   "html_options_suspend_no_forms": {
     "message": "Never suspend tabs that contain unsaved form inputs"
@@ -380,8 +413,41 @@
   "html_options_suspend_no_active_tabs": {
     "message": "Never suspend active tab in each window"
   },
+  "html_options_suspend_no_scroll_pos": {
+    "message": "Always reopen suspended tabs scrolled to the top"
+  },
+  "html_options_suspend_no_scroll_pos_tooltip_line1a": {
+    "message": "The tab reopens at the top of the page instead of wherever it was"
+  },
+  "html_options_suspend_no_scroll_pos_tooltip_line1b": {
+    "message": "scrolled to when suspended."
+  },
+  "html_options_suspend_no_scroll_pos_tooltip_line2a": {
+    "message": "Applies to both automatic and manual suspension, and overrides"
+  },
+  "html_options_suspend_no_scroll_pos_tooltip_line2b": {
+    "message": "links that jump to a #section on load."
+  },
   "html_options_suspend_automatically_unsuspend": {
     "message": "Automatically unsuspend tab when it is viewed"
+  },
+  "html_options_suspend_reload_unsuspend_background": {
+    "message": "Reload also unsuspends tabs in the background (not just the active tab)"
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line1a": {
+    "message": "When enabled, reloading a suspended tab (Ctrl+R or right-click"
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line1b": {
+    "message": "> Reload) also unsuspends it even when it's not the currently"
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line1c": {
+    "message": "focused tab."
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line2a": {
+    "message": "Useful for reloading several suspended tabs at once, e.g. after"
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line2b": {
+    "message": "selecting multiple tabs and pressing Ctrl+R."
   },
   "html_options_suspend_discard_after_suspend": {
     "message": "Apply your browser's built-in memory-saving when suspending"
@@ -496,6 +562,14 @@
   },
   "html_options_whitelist_tooltip_line3": {
     "message": "You can also specify regular expressions by enclosing the text in forward slashes:"
+  },
+  "html_options_changelog_modal_title": {
+    "message": "What's new in v$version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
   },
   "html_options_whitelist_close": {
     "message": "Close"
@@ -809,6 +883,9 @@
   "js_popup_pinned": {
     "message": "Tab has been pinned"
   },
+  "js_popup_app_window": {
+    "message": "Tab is open in an app window"
+  },
   "js_popup_temp_whitelist": {
     "message": "Tab suspension paused."
   },
@@ -1066,7 +1143,11 @@
   },
   "js_options_backup_last_local": {
     "message": "Last backup: $date$",
-    "placeholders": { "date": { "content": "$1" } }
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
   },
   "html_options_backup_destination": {
     "message": "Backup destination"
@@ -1177,11 +1258,19 @@
   },
   "js_backup_settings_drive_last_backup": {
     "message": "Last backup: $date$",
-    "placeholders": { "date": { "content": "$1" } }
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
   },
   "js_backup_settings_drive_overwrite_confirm": {
     "message": "Existing settings backup from $date$. Overwrite?",
-    "placeholders": { "date": { "content": "$1" } }
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
   },
   "html_options_settings_export": {
     "message": "Export settings"
@@ -1227,7 +1316,11 @@
   },
   "js_backup_restore_success": {
     "message": "Imported as \"$name$\".",
-    "placeholders": { "name": { "content": "$1" } }
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
   },
   "js_backup_restore_go_sessions": {
     "message": "→ Open Sessions to restore"

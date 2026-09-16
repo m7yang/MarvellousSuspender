@@ -27,8 +27,13 @@ globalThis.chrome = {
     lastError: null,
   },
   storage: {
+    onChanged: { addListener: () => {} },
     local: {
-      get: async (keys) => pick(localState, keys),
+      get: async (keys, callback) => {
+        const result = pick(localState, keys);
+        callback?.(result);
+        return result;
+      },
       set: async (values) => Object.assign(localState, values),
     },
     session: {

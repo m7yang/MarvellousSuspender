@@ -14,7 +14,12 @@ module.exports = function(grunt) {
     copy: {
       main: {
         expand: true,
-        src: ['src/**', '!src/tests.html', '!src/js/tests/**', '!src/img/*.xcf'],
+        // src/js/gsOauthSecrets.local.js is a maintainer-local override file, never
+        // tracked by git, that predates the OAuth proxy migration. Untracked files
+        // survive git operations untouched, so removing it from .gitignore alone
+        // doesn't stop a maintainer's leftover copy (potentially still holding the
+        // old embedded client secret) from being packaged — exclude it here too.
+        src: ['src/**', '!src/tests.html', '!src/js/tests/**', '!src/img/*.xcf', '!src/js/gsOauthSecrets.local.js'],
         dest: '<%= config.tempDir %>',
       },
     },
@@ -98,6 +103,7 @@ module.exports = function(grunt) {
   grunt.loadNpmTasks('grunt-string-replace');
   grunt.loadNpmTasks('grunt-crx');
   grunt.loadNpmTasks('grunt-contrib-clean');
+
   grunt.registerTask('default', [
     'copy',
     'string-replace:debugoff',

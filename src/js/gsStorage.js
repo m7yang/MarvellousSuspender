@@ -8,7 +8,9 @@ export const gsStorage = {
   SCREEN_CAPTURE_FORCE          : 'screenCaptureForce',
   SUSPEND_IN_PLACE_OF_DISCARD   : 'suspendInPlaceOfDiscard',
   UNSUSPEND_ON_FOCUS            : 'gsUnsuspendOnFocus',
+  RELOAD_UNSUSPEND_BACKGROUND   : 'gsReloadUnsuspendBackground',
   SUSPEND_TIME                  : 'gsTimeToSuspend',
+  SUSPEND_TIME_ON_BATTERY       : 'gsTimeToSuspendOnBattery',
   IGNORE_WHEN_OFFLINE           : 'onlineCheck',
   IGNORE_WHEN_CHARGING          : 'batteryCheck',
   CLAIM_BY_DEFAULT              : 'claimByDefault',
@@ -16,6 +18,8 @@ export const gsStorage = {
   IGNORE_FORMS                  : 'gsDontSuspendForms',
   IGNORE_AUDIO                  : 'gsDontSuspendAudio',
   IGNORE_ACTIVE_TABS            : 'gsDontSuspendActiveTabs',
+  IGNORE_APP_WINDOWS            : 'gsDontSuspendAppWindows',
+  IGNORE_SCROLL_POS             : 'gsDontRestoreScrollPos',
   IGNORE_CACHE                  : 'gsIgnoreCache',
   ADD_CONTEXT                   : 'gsAddContextMenu',
   SYNC_SETTINGS                 : 'gsSyncSettings',
@@ -44,11 +48,11 @@ export const gsStorage = {
   APP_VERSION                   : 'gsVersion',
   LAST_EXTENSION_RECOVERY       : 'gsExtensionRecovery',
   UPDATE_AVAILABLE              : 'gsUpdateAvailable',
+  LAST_SEEN_CHANGELOG_VERSION   : 'gsLastSeenChangelogVersion',
 
   DEFAULT_FAVICON_FINGERPRINTS  : 'gsDefaultFaviconFingerprints',
 
   CAPTURE_LOGS                  : 'gsCaptureVerbose',
-  LOG_BUFFER                    : 'gsLogBuffer',
 
   APPEND_URL_TO_TITLE           : 'gsAppendUrlToTitle',
   ADD_YOUTUBE_TIMESTAMP         : 'gsAddYouTubeTimestamp',
@@ -66,14 +70,18 @@ export const gsStorage = {
     defaults[gsStorage.IGNORE_WHEN_CHARGING] = false;
     defaults[gsStorage.CLAIM_BY_DEFAULT] = false;
     defaults[gsStorage.UNSUSPEND_ON_FOCUS] = false;
+    defaults[gsStorage.RELOAD_UNSUSPEND_BACKGROUND] = false;
     defaults[gsStorage.IGNORE_PINNED] = true;
     defaults[gsStorage.IGNORE_FORMS] = true;
     defaults[gsStorage.IGNORE_AUDIO] = true;
     defaults[gsStorage.IGNORE_ACTIVE_TABS] = true;
+    defaults[gsStorage.IGNORE_APP_WINDOWS] = true;
+    defaults[gsStorage.IGNORE_SCROLL_POS] = false;
     defaults[gsStorage.IGNORE_CACHE] = false;
     defaults[gsStorage.ADD_CONTEXT] = true;
     defaults[gsStorage.SYNC_SETTINGS] = true;
     defaults[gsStorage.SUSPEND_TIME] = '60';
+    defaults[gsStorage.SUSPEND_TIME_ON_BATTERY] = '';
     defaults[gsStorage.NO_NAG] = false;
     defaults[gsStorage.WHITELIST] = '';
     defaults[gsStorage.ALWAYS_SUSPEND_LIST] = '';
@@ -401,6 +409,26 @@ export const gsStorage = {
         gsUtils.error(
           'gsStorage',
           'failed to save ' + gsStorage.APP_VERSION + ' to local storage',
+          chrome.runtime.lastError
+        );
+      }
+    });
+  },
+
+  fetchLastSeenChangelogVersion: function() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([gsStorage.LAST_SEEN_CHANGELOG_VERSION], (result) => {
+        resolve(result[gsStorage.LAST_SEEN_CHANGELOG_VERSION] || '');
+      });
+    });
+  },
+
+  setLastSeenChangelogVersion: function(newVersion) {
+    chrome.storage.local.set({ [gsStorage.LAST_SEEN_CHANGELOG_VERSION]: newVersion }, () => {
+      if (chrome.runtime.lastError) {
+        gsUtils.error(
+          'gsStorage',
+          'failed to save ' + gsStorage.LAST_SEEN_CHANGELOG_VERSION + ' to local storage',
           chrome.runtime.lastError
         );
       }

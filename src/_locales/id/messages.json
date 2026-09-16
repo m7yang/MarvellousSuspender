@@ -20,6 +20,18 @@
   "ext_cmd_unsuspend_selected_tabs_description": {
     "message": "BatalTangguhkan tab yang dipilih"
   },
+  "ext_cmd_suspend_tab_group_description": {
+    "message": "Tangguhkan semua tab di grup tab aktif"
+  },
+  "ext_cmd_unsuspend_tab_group_description": {
+    "message": "BatalTangguhkan semua tab di grup tab aktif"
+  },
+  "ext_cmd_suspend_ungrouped_tabs_description": {
+    "message": "Tangguhkan semua tab yang tidak ada di grup pada jendela aktif"
+  },
+  "ext_cmd_unsuspend_ungrouped_tabs_description": {
+    "message": "BatalTangguhkan semua tab yang tidak ada di grup pada jendela aktif"
+  },
   "ext_cmd_soft_suspend_active_window_description": {
     "message": "Tangguhkan semua tab lainnya di jendela aktif"
   },
@@ -58,6 +70,18 @@
   },
   "js_context_unsuspend_selected_tabs": {
     "message": "BatalTangguhkan tab yang dipilih"
+  },
+  "js_context_suspend_tab_group": {
+    "message": "Tangguhkan semua tab di grup ini"
+  },
+  "js_context_unsuspend_tab_group": {
+    "message": "BatalTangguhkan semua tab di grup ini"
+  },
+  "js_context_suspend_ungrouped_tabs": {
+    "message": "Tangguhkan semua tab yang tidak ada di grup"
+  },
+  "js_context_unsuspend_ungrouped_tabs": {
+    "message": "BatalTangguhkan semua tab yang tidak ada di grup"
   },
   "js_context_soft_suspend_other_tabs_in_window": {
     "message": "Tangguhkan semua tab lain di jendela ini"
@@ -314,6 +338,12 @@
   "html_options_suspend_automatically_after": {
     "message": "Secara otomatis menangguhkan tab setelah"
   },
+  "html_options_suspend_on_battery_after": {
+    "message": "Menangguhkan tab saat baterai setelah"
+  },
+  "html_options_suspend_same_as_ac": {
+    "message": "Sama seperti saat dicolokkan"
+  },
   "html_options_suspend_never": {
     "message": "Tidak pernah"
   },
@@ -346,6 +376,9 @@
   },
   "html_options_suspend_no_pinned": {
     "message": "Jangan pernah menangguhkan tab yang disematkan"
+  },
+  "html_options_suspend_no_app_windows": {
+    "message": "Jangan pernah menangguhkan tab yang dibuka di jendela aplikasi"
   },
   "html_options_suspend_no_forms": {
     "message": "Jangan pernah menangguhkan tab yang berisi input formulir yang belum disimpan"
@@ -380,8 +413,41 @@
   "html_options_suspend_no_active_tabs": {
     "message": "Jangan pernah menangguhkan tab aktif di setiap jendela"
   },
+  "html_options_suspend_no_scroll_pos": {
+    "message": "Selalu buka kembali tab yang ditangguhkan dari bagian atas halaman"
+  },
+  "html_options_suspend_no_scroll_pos_tooltip_line1a": {
+    "message": "Tab dibuka kembali dari bagian atas halaman, bukan dari posisi"
+  },
+  "html_options_suspend_no_scroll_pos_tooltip_line1b": {
+    "message": "saat ditangguhkan."
+  },
+  "html_options_suspend_no_scroll_pos_tooltip_line2a": {
+    "message": "Berlaku untuk penangguhan otomatis maupun manual, dan"
+  },
+  "html_options_suspend_no_scroll_pos_tooltip_line2b": {
+    "message": "mengesampingkan tautan yang mengarah ke bagian (#) saat dimuat."
+  },
   "html_options_suspend_automatically_unsuspend": {
     "message": "Secara otomatis batal tangguhkan tab saat dilihat"
+  },
+  "html_options_suspend_reload_unsuspend_background": {
+    "message": "Memuat ulang juga membatalkan penangguhan tab di latar belakang (bukan hanya tab aktif)"
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line1a": {
+    "message": "Jika diaktifkan, memuat ulang tab yang ditangguhkan (Ctrl+R"
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line1b": {
+    "message": "atau klik kanan > Muat ulang) juga membatalkan penangguhannya"
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line1c": {
+    "message": "meskipun bukan tab yang sedang aktif."
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line2a": {
+    "message": "Berguna untuk memuat ulang beberapa tab tertunda sekaligus,"
+  },
+  "html_options_suspend_reload_unsuspend_background_tooltip_line2b": {
+    "message": "misalnya setelah memilih beberapa tab lalu menekan Ctrl+R."
   },
   "html_options_suspend_discard_after_suspend": {
     "message": "Terapkan penghematan memori bawaan browser saat menangguhkan"
@@ -496,6 +562,14 @@
   },
   "html_options_whitelist_tooltip_line3": {
     "message": "Anda juga dapat menentukan ekspresi reguler dengan melampirkan teks dalam garis miring:"
+  },
+  "html_options_changelog_modal_title": {
+    "message": "Yang baru di v$version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
   },
   "html_options_whitelist_close": {
     "message": "Tutup"
@@ -808,6 +882,9 @@
   },
   "js_popup_pinned": {
     "message": "Tab telah disematkan"
+  },
+  "js_popup_app_window": {
+    "message": "Tab terbuka di jendela aplikasi"
   },
   "js_popup_temp_whitelist": {
     "message": "Penangguhan tab dijeda."

@@ -16,8 +16,8 @@ const timersCreated = new Promise((resolve) => {
 globalThis.chrome = {
   alarms: {
     clear: async () => true,
-    clearAll(callback) {
-      callback();
+    getAll(callback) {
+      callback([]);
     },
     create(name, details) {
       createdAlarms.push({ name, details });
@@ -60,6 +60,7 @@ const [
 
 test('bulk Automatic Suspension timer setup does not inspect every tab window', async () => {
   const originalGetOption = gsStorage.getOption;
+  const originalGetStorageJSON = gsStorage.getStorageJSON;
   const originalIsNormalTab = gsUtils.isNormalTab;
   const originalIsProtectedActiveTab = gsUtils.isProtectedActiveTab;
   const originalLog = gsUtils.log;
@@ -68,6 +69,7 @@ test('bulk Automatic Suspension timer setup does not inspect every tab window', 
     assert.equal(key, gsStorage.SUSPEND_TIME);
     return '60';
   };
+  gsStorage.getStorageJSON = async () => undefined;
   gsUtils.isNormalTab = () => true;
   gsUtils.isProtectedActiveTab = async () => false;
   gsUtils.log = () => {};
@@ -84,6 +86,7 @@ test('bulk Automatic Suspension timer setup does not inspect every tab window', 
   }
   finally {
     gsStorage.getOption = originalGetOption;
+    gsStorage.getStorageJSON = originalGetStorageJSON;
     gsUtils.isNormalTab = originalIsNormalTab;
     gsUtils.isProtectedActiveTab = originalIsProtectedActiveTab;
     gsUtils.log = originalLog;

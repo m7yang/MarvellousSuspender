@@ -30,6 +30,7 @@ const suspendedUrl =
   'chrome-extension://test-extension-id/suspended.html' +
   '#ttl=sonner&pos=0&uri=https://github.com/emilkowalski/sonner';
 const cachedFaviconMeta = {
+  v: 2,
   favIconUrl: savedFavIconUrl,
   isDark: false,
   normalisedDataUrl: 'data:image/png;base64,NORMAL',
@@ -47,6 +48,9 @@ function installFaviconDom() {
   }
 
   globalThis.Image = class {
+    width = 16;
+    height = 16;
+
     set src(value) {
       this.currentSrc = value;
       queueMicrotask(() => this.onload());
@@ -161,6 +165,7 @@ test('Jira refreshes a cached favicon only when its source URL changes', async (
   const changedSourceUrl =
     'https://team.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10002';
   const cachedMeta = {
+    v: 2,
     favIconUrl: cachedSourceUrl,
     isDark: false,
     normalisedDataUrl: 'data:image/png;base64,CACHED_NORMAL',

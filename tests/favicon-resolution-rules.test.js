@@ -5,6 +5,7 @@ import { faviconResolutionRules } from '../src/js/fork/faviconResolutionRules.js
 
 async function loadGsUtils() {
   globalThis.chrome = {
+    extension: { inIncognitoContext: false },
     runtime: {
       id: 'test-extension-id',
       getURL: (path) => `chrome-extension://test-extension-id/${path}`,

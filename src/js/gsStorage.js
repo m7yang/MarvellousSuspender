@@ -3,6 +3,33 @@ import  { gsUtils }               from './gsUtils.js';
 
 'use strict';
 
+// Every write of the settings object is a read-modify-write of the whole object, so two
+// overlapping ones could write back a stale copy. Per context: a page has its own chain.
+let _settingsWriteChain = Promise.resolve();
+
+function withSettingsLock(fn) {
+  const result = _settingsWriteChain.then(fn, fn);
+  _settingsWriteChain = result.then(() => {}, () => {});
+  return result;
+}
+
+//defaults filled in, not saved. Use this inside the lock: getSettings() would deadlock there
+async function readSettings() {
+  const settings = await gsStorage.getStorage('local', 'gsSettings');
+  if (!settings) {
+    return { settings: gsStorage.getSettingsDefaults(), backfilled: true };
+  }
+  const defaults = gsStorage.getSettingsDefaults();
+  let backfilled = false;
+  for (const prop in defaults) {
+    if (typeof settings[prop] === 'undefined' || settings[prop] === null) {
+      settings[prop] = defaults[prop];
+      backfilled = true;
+    }
+  }
+  return { settings, backfilled };
+}
+
 export const gsStorage = {
   SCREEN_CAPTURE                : 'screenCapture',
   SCREEN_CAPTURE_FORCE          : 'screenCaptureForce',
@@ -19,6 +46,7 @@ export const gsStorage = {
   IGNORE_AUDIO                  : 'gsDontSuspendAudio',
   IGNORE_ACTIVE_TABS            : 'gsDontSuspendActiveTabs',
   IGNORE_APP_WINDOWS            : 'gsDontSuspendAppWindows',
+  IGNORE_GROUPED_TABS           : 'gsDontSuspendGroupedTabs',
   IGNORE_SCROLL_POS             : 'gsDontRestoreScrollPos',
   IGNORE_CACHE                  : 'gsIgnoreCache',
   ADD_CONTEXT                   : 'gsAddContextMenu',
@@ -29,6 +57,7 @@ export const gsStorage = {
   LANGUAGE                      : 'gsLanguage',
   WHITELIST                     : 'gsWhitelist',
   ALWAYS_SUSPEND_LIST           : 'gsAlwaysSuspendList',
+  NEVER_SUSPEND_GROUPS          : 'gsNeverSuspendGroups',
 
   DISCARD_AFTER_SUSPEND         : 'discardAfterSuspend',
   DISCARD_IN_PLACE_OF_SUSPEND   : 'discardInPlaceOfSuspend',
@@ -76,6 +105,7 @@ export const gsStorage = {
     defaults[gsStorage.IGNORE_AUDIO] = true;
     defaults[gsStorage.IGNORE_ACTIVE_TABS] = true;
     defaults[gsStorage.IGNORE_APP_WINDOWS] = true;
+    defaults[gsStorage.IGNORE_GROUPED_TABS] = false;
     defaults[gsStorage.IGNORE_SCROLL_POS] = false;
     defaults[gsStorage.IGNORE_CACHE] = false;
     defaults[gsStorage.ADD_CONTEXT] = true;
@@ -85,6 +115,7 @@ export const gsStorage = {
     defaults[gsStorage.NO_NAG] = false;
     defaults[gsStorage.WHITELIST] = '';
     defaults[gsStorage.ALWAYS_SUSPEND_LIST] = '';
+    defaults[gsStorage.NEVER_SUSPEND_GROUPS] = '';
     defaults[gsStorage.THEME] = 'system';
     defaults[gsStorage.LEGACY_MASCOT] = false;
     defaults[gsStorage.LANGUAGE] = 'auto';
@@ -217,31 +248,42 @@ export const gsStorage = {
       }
       const shouldSync = await gsStorage.getOption(gsStorage.SYNC_SETTINGS);
       if (shouldSync) {
-        const localSettings = await gsStorage.getSettings();
         var changedSettingKeys = [];
         var oldValueBySettingKey = {};
         var newValueBySettingKey = {};
-        Object.keys(remoteSettings).forEach(function(key) {
-          var remoteSetting = remoteSettings[key];
+        await withSettingsLock(async () => {
+          const { settings: localSettings, backfilled } = await readSettings();
+          Object.keys(remoteSettings).forEach(function(key) {
+            var remoteSetting = remoteSettings[key];
 
-          // If nags are disabled locally, then ensure we disable them on synced profile
-          if (key === gsStorage.NO_NAG) {
-            if (remoteSetting.newValue === false) {
-              return false; // don't process this key
+            // If nags are disabled locally, then ensure we disable them on synced profile
+            if (key === gsStorage.NO_NAG) {
+              if (remoteSetting.newValue === false) {
+                return false; // don't process this key
+              }
             }
-          }
 
-          if (localSettings[key] !== remoteSetting.newValue) {
-            gsUtils.log( 'gsStorage', 'Changed value from sync', key, remoteSetting.newValue );
-            changedSettingKeys.push(key);
-            oldValueBySettingKey[key] = localSettings[key];
-            newValueBySettingKey[key] = remoteSetting.newValue;
-            localSettings[key] = remoteSetting.newValue;
+            // based on a value this device has since moved past: applying it restores a stale one
+            if (remoteSetting.oldValue !== undefined
+              && localSettings[key] !== remoteSetting.oldValue
+              && localSettings[key] !== remoteSetting.newValue) {
+              return false;
+            }
+
+            if (localSettings[key] !== remoteSetting.newValue) {
+              gsUtils.log( 'gsStorage', 'Changed value from sync', key, remoteSetting.newValue );
+              changedSettingKeys.push(key);
+              oldValueBySettingKey[key] = localSettings[key];
+              newValueBySettingKey[key] = remoteSetting.newValue;
+              localSettings[key] = remoteSetting.newValue;
+            }
+          });
+          if (changedSettingKeys.length > 0 || backfilled) {
+            await gsStorage.saveSettings(localSettings);
           }
         });
 
         if (changedSettingKeys.length > 0) {
-          await gsStorage.saveSettings(localSettings);
           gsUtils.performPostSaveUpdates(
             changedSettingKeys,
             oldValueBySettingKey,
@@ -254,19 +296,18 @@ export const gsStorage = {
 
   //due to migration issues and new settings being added, i have built in some redundancy
   //here so that getOption will always return a valid value.
+  //no save here, getSettings() does it under the lock
   getOption: async (prop) => {
     const settings = await gsStorage.getSettings();
-    if (typeof settings[prop] === 'undefined' || settings[prop] === null) {
-      settings[prop] = gsStorage.getSettingsDefaults()[prop];
-      await gsStorage.saveSettings(settings);
-    }
-    return settings[prop];
+    return settings[prop] ?? gsStorage.getSettingsDefaults()[prop];
   },
 
   setOption: async (prop, value) => {
-    const settings = await gsStorage.getSettings();
-    settings[prop] = value;
-    await gsStorage.saveSettings(settings);
+    await withSettingsLock(async () => {
+      const { settings } = await readSettings();
+      settings[prop] = value;
+      await gsStorage.saveSettings(settings);
+    });
   },
 
   // Calling syncSettings has the unfortunate side-effect of triggering the chrome.storage.onChanged
@@ -321,23 +362,15 @@ export const gsStorage = {
   },
 
   getSettings: async () => {
-    let settings = await gsStorage.getStorage('local', 'gsSettings');
-    if (!settings) {
-      settings = gsStorage.getSettingsDefaults();
-      await gsStorage.saveSettings(settings);
-      return settings;
-    }
-    // backfill any settings keys introduced after the user's initial install
-    const defaults = gsStorage.getSettingsDefaults();
-    let hasNewKeys = false;
-    for (const prop in defaults) {
-      if (typeof settings[prop] === 'undefined' || settings[prop] === null) {
-        settings[prop] = defaults[prop];
-        hasNewKeys = true;
-      }
-    }
-    if (hasNewKeys) {
-      await gsStorage.saveSettings(settings);
+    const { settings, backfilled } = await readSettings();
+    if (backfilled) {
+      //save from a fresh read under the lock, so a newer write is not overwritten
+      await withSettingsLock(async () => {
+        const fresh = await readSettings();
+        if (fresh.backfilled) {
+          await gsStorage.saveSettings(fresh.settings);
+        }
+      });
     }
     return settings;
   },
@@ -374,11 +407,12 @@ export const gsStorage = {
       // Since sync is a local setting, delete it to simplify things.
       delete settings[gsStorage.SYNC_SETTINGS];
       gsUtils.log('gsStorage', 'gsStorage', 'Pushing local settings to sync', settings);
-      chrome.storage.sync.set(settings, () => {
-        if (chrome.runtime.lastError) {
-          gsUtils.error('gsStorage', 'failed to save to chrome.storage.sync: ', chrome.runtime.lastError);
-        }
-      });
+      try {
+        await chrome.storage.sync.set(settings);
+      }
+      catch (e) {
+        gsUtils.error('gsStorage', 'failed to save to chrome.storage.sync: ', e);
+      }
     }
   },
 

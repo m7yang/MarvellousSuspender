@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 globalThis.chrome = {
+  extension: { inIncognitoContext: false },
   i18n: {
     getMessage: () => '',
   },

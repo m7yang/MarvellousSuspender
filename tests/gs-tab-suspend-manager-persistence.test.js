@@ -17,6 +17,7 @@ function pick(state, keys) {
 }
 
 globalThis.chrome = {
+  extension: { inIncognitoContext: false },
   i18n: {
     getMessage: () => '',
   },

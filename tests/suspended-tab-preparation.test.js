@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 globalThis.chrome = {
+  extension: { inIncognitoContext: false },
   runtime: {
     id: 'test-extension-id',
     getURL: (path) => `chrome-extension://test-extension-id/${path}`,

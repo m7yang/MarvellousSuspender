@@ -14,6 +14,7 @@ const timersCreated = new Promise((resolve) => {
 });
 
 globalThis.chrome = {
+  extension: { inIncognitoContext: false },
   alarms: {
     clear: async () => true,
     getAll(callback) {

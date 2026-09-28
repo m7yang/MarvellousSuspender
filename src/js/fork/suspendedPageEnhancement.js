@@ -2,6 +2,7 @@ import  { gsUtils }               from '../gsUtils.js';
 import  { tgs }                   from '../tgs.js';
 import  { observeShortcutPresentation } from './shortcutPresentation.js';
 import  { reloadSuspendedPage }   from './suspendedPageReload.js';
+import  { showCachedFavicon }     from './suspendedPageFavicon.js';
 
 (() => {
 
@@ -223,6 +224,7 @@ import  { reloadSuspendedPage }   from './suspendedPageReload.js';
   }
 
   function install() {
+    showCachedFavicon(document);
     document.body.classList.add('suspendedPageEnhanced');
     injectReloadButton();
     installUrlEditorWhenInitialised();

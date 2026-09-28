@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createChromeStub } from './setup/chrome-stub.js';
 
 const tabs = [
   { id: 11, windowId: 101, url: 'https://example.com/one' },
@@ -13,8 +14,11 @@ const timersCreated = new Promise((resolve) => {
   resolveTimersCreated = resolve;
 });
 
+const chromeStub = createChromeStub();
+
 globalThis.chrome = {
-  extension: { inIncognitoContext: false },
+  ...chromeStub,
+  extension: { ...chromeStub.extension, inIncognitoContext: false },
   alarms: {
     clear: async () => true,
     getAll(callback) {

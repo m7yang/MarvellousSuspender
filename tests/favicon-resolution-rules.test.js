@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createChromeStub } from './setup/chrome-stub.js';
 
 import { faviconResolutionRules } from '../src/js/fork/faviconResolutionRules.js';
 
 async function loadGsUtils() {
+  const chromeStub = createChromeStub();
   globalThis.chrome = {
-    extension: { inIncognitoContext: false },
+    ...chromeStub,
+    extension: { ...chromeStub.extension, inIncognitoContext: false },
     runtime: {
       id: 'test-extension-id',
       getURL: (path) => `chrome-extension://test-extension-id/${path}`,

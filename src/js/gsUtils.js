@@ -426,13 +426,11 @@ export const gsUtils = {
       return false;
     }
     const url = gsUtils.getTabUrl(tab);
-    // chrome-extension:// pages (TMS own pages or other extensions) cannot receive
-    // content scripts and must never be suspended — isBrowserInternalURL misses them
-    // because its regex matches "chrome:" but not "chrome-extension:".
-    if (url?.startsWith(`${chrome.runtime.getURL('').split(':')[0]}://`)) {
-      return true;
-    }
-    return ( this.isBrowserInternalURL(url) || gsUtils.isBlockedFileTab(tab) );
+    // Only what getOriginalUrl() will hand back later may be suspended: browser-internal
+    // pages, chrome-extension:// pages (ours or other extensions'), data:, blob:,
+    // view-source: and the like are all "special". Sharing isSuspendableUrl() with
+    // getOriginalUrl() is what keeps suspension and unsuspension from disagreeing.
+    return ( !gsUtils.isSuspendableUrl(url) || gsUtils.isBlockedFileTab(tab) );
   },
 
   isFileTab(tab) {
@@ -446,10 +444,10 @@ export const gsUtils = {
     return false;
   },
 
-  //tests if the page is a file:// page AND the user has not enabled access to
-  //file URLs in extension settings
+  //tests if the page is a file:// page AND the extension can't actually suspend it
+  //yet (toggle off, host permission not granted, or both - see gsSession.isFileUrlsUsable)
   isBlockedFileTab(tab) {
-    if (gsUtils.isFileTab(tab) && !gsSession.isFileUrlsAccessAllowed()) {
+    if (gsUtils.isFileTab(tab) && !gsSession.isFileUrlsUsable()) {
       return true;
     }
     return false;
@@ -1071,15 +1069,41 @@ export const gsUtils = {
     return reloadOk;
   },
 
+  // The only schemes a tab may have when this extension suspends it, and therefore the only
+  // ones getOriginalUrl() hands back. suspended.html is web-accessible, so any web page can
+  // open one with an arbitrary "uri=" in the hash and the extension treats it as its own;
+  // whatever comes back out of getOriginalUrl() then goes to chrome.tabs.update() /
+  // chrome.tabs.create(), which an extension may point at chrome:// and data: urls that web
+  // content cannot reach by itself. Anything outside this list is dropped.
+  //
+  // file: stays in deliberately: suspending file:// tabs is a feature (permissions.html
+  // walks users through granting file access). The residual risk is a forged placeholder
+  // taking a click to a local file, only for users who granted that access, and only to
+  // display it: no read-back to the page. Closing that needs an ownership marker on the
+  // suspended urls we generate, which would also break adopting other suspenders' tabs
+  // (background.js claimTab), so it is a separate decision.
+  SUSPENDABLE_SCHEMES: ['http:', 'https:', 'file:'],
+
   /**
+   * @param {string | undefined} url
+   * @returns {boolean}
+   */
+  isSuspendableUrl(url) {
+    if (!url) return false;
+    return gsUtils.SUSPENDABLE_SCHEMES.includes(gsUtils.getNewURL(url)?.protocol);
+  },
+
+  /**
+   * The url a suspended tab was suspended from, or '' when the suspended url carries none
+   * or carries one this extension could never have produced (see SUSPENDABLE_SCHEMES).
    * @param {string} urlStr
    * @returns {string}
    */
   getOriginalUrl(urlStr) {
-    return (
+    const original =
       gsUtils.getHashVariable('uri', urlStr) ||
-      gsUtils.decodeString(gsUtils.getHashVariable('url', urlStr) || '')
-    );
+      gsUtils.decodeString(gsUtils.getHashVariable('url', urlStr) || '');
+    return gsUtils.isSuspendableUrl(original) ? original : '';
   },
   getSuspendedFavIconUrl(urlStr) {
     return gsUtils.decodeString(gsUtils.getHashVariable('favi', urlStr) || '');
@@ -1166,11 +1190,19 @@ export const gsUtils = {
 
   performPostSaveUpdates(changedSettingKeys, oldValueBySettingKey, newValueBySettingKey) {
     // gsUtils.log('gsUtils', 'performPostSaveUpdates');
-    if (changedSettingKeys.includes(gsStorage.LEGACY_MASCOT)) {
+    const updateMascot = changedSettingKeys.includes(gsStorage.LEGACY_MASCOT);
+    const updateTheme = changedSettingKeys.includes(gsStorage.THEME);
+    const updatePreviewMode = changedSettingKeys.includes(gsStorage.SCREEN_CAPTURE);
+    const updateDiscardAfterSuspend = changedSettingKeys.includes(gsStorage.DISCARD_AFTER_SUSPEND);
+    const updateIgnoreForms = changedSettingKeys.includes(gsStorage.IGNORE_FORMS);
+    const updateSuspendInPlaceOfDiscard = changedSettingKeys.includes(gsStorage.SUSPEND_IN_PLACE_OF_DISCARD);
+
+    if (updateMascot) {
       tgs.refreshDefaultIcon();
       tgs.setIconStatusForActiveTab();
     }
     chrome.tabs.query({}, async (tabs) => {
+      let settingsPromise = null;
       for (const tab of tabs) {
         if (gsUtils.isSpecialTab(tab)) {
           continue;
@@ -1192,7 +1224,6 @@ export const gsUtils = {
           }
 
           // if the legacy mascot setting has changed then refresh already-suspended tabs
-          const updateMascot = changedSettingKeys.includes(gsStorage.LEGACY_MASCOT);
           if (updateMascot) {
             if (await gsChrome.contextGetByTabId(tab.id)) {
               if (tab.id) {
@@ -1211,8 +1242,6 @@ export const gsUtils = {
           // loaded leaves that tab's cache stale until it's next reactivated, one
           // self-correcting flash at that point via the normal async setTheme() call,
           // same as this cache's baseline behaviour before it existed at all.
-          const updateTheme = changedSettingKeys.includes(gsStorage.THEME);
-          const updatePreviewMode = changedSettingKeys.includes(gsStorage.SCREEN_CAPTURE);
           if (updateTheme || updatePreviewMode) {
             if (await gsChrome.contextGetByTabId(tab.id)) {
               if (updateTheme) {
@@ -1237,18 +1266,18 @@ export const gsUtils = {
           }
 
           //if discardAfterSuspend has changed then updated discarded tabs
-          const updateDiscardAfterSuspend = changedSettingKeys.includes(gsStorage.DISCARD_AFTER_SUSPEND);
-          gsStorage.getOption(gsStorage.DISCARD_AFTER_SUSPEND).then((discardAfterSuspend) => {
-            if (
-              updateDiscardAfterSuspend &&
-              discardAfterSuspend &&
-              gsUtils.isSuspendedTab(tab) &&
-              !gsUtils.isDiscardedTab(tab)
-            ) {
-              gsTabDiscardManager.queueTabForDiscard(tab);
-            }
-            return;
-          });
+          if (updateDiscardAfterSuspend) {
+            gsStorage.getOption(gsStorage.DISCARD_AFTER_SUSPEND).then((discardAfterSuspend) => {
+              if (
+                discardAfterSuspend &&
+                gsUtils.isSuspendedTab(tab) &&
+                !gsUtils.isDiscardedTab(tab)
+              ) {
+                gsTabDiscardManager.queueTabForDiscard(tab);
+              }
+              return;
+            });
+          }
         }
 
         if (!gsUtils.isNormalTab(tab, true)) {
@@ -1256,14 +1285,12 @@ export const gsUtils = {
         }
 
         //update content scripts of normal tabs
-        const updateIgnoreForms = changedSettingKeys.includes(
-          gsStorage.IGNORE_FORMS,
-        );
         if (updateIgnoreForms) {
           gsMessages.sendUpdateToContentScriptOfTab(tab); //async. unhandled error
         }
 
-        gsStorage.getSettings().then(async (settings) => {
+        settingsPromise = settingsPromise ?? gsStorage.getSettings();
+        settingsPromise.then(async (settings) => {
           //update suspend timers
           const updateSuspendTime =
             changedSettingKeys.includes(gsStorage.SUSPEND_TIME) ||
@@ -1304,7 +1331,6 @@ export const gsUtils = {
         });
 
         //if SuspendInPlaceOfDiscard has changed then updated discarded tabs
-        const updateSuspendInPlaceOfDiscard = changedSettingKeys.includes( gsStorage.SUSPEND_IN_PLACE_OF_DISCARD );
         if (updateSuspendInPlaceOfDiscard && gsUtils.isDiscardedTab(tab)) {
           gsTabDiscardManager.handleDiscardedUnsuspendedTab(tab); //async. unhandled promise.
           //note: this may cause the tab to suspend
@@ -1360,13 +1386,18 @@ export const gsUtils = {
     return window;
   },
 
+  // Drops the tabs a session cannot restore: this extension's own pages, and suspended
+  // entries whose original url getOriginalUrl() refuses (forged, or from a scheme that is
+  // no longer suspendable). Without the second half those would become blank tabs on
+  // restore and dead rows on the recovery page.
   removeInternalUrlsFromSession(session) {
     if (!session?.windows) { return; }
     for (let i = session.windows.length - 1; i >= 0; i--) {
       const curWindow = session.windows[i];
       for (let j = curWindow.tabs.length - 1; j >= 0; j--) {
         const curTab = curWindow.tabs[j];
-        if (gsUtils.isInternalTab(curTab)) {
+        const unrecoverable = gsUtils.isSuspendedTab(curTab) && gsUtils.getOriginalUrl(curTab.url) === '';
+        if (gsUtils.isInternalTab(curTab) || unrecoverable) {
           curWindow.tabs.splice(j, 1);
         }
       }

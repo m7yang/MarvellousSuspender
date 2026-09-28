@@ -420,16 +420,19 @@ export const gsFavicon = (() => {
     const timeout = 5 * 1000;
     let loadTimeoutId;
     return new Promise((resolve, reject) => {
+      loadTimeoutId = setTimeout(() => {
+        reject(`Failed to load img.src for ${url}`);
+      }, timeout);
+
       const img = new Image();
       // 12-16-2018 ::: @CollinChaffin ::: Anonymous declaration required to prevent terminating cross origin security errors
       // 12-16-2018 ::: @CollinChaffin ::: http://bit.ly/2BolEqx
       // 12-16-2018 ::: @CollinChaffin ::: https://bugs.chromium.org/p/chromium/issues/detail?id=409090#c23
       // 12-16-2018 ::: @CollinChaffin ::: https://bugs.chromium.org/p/chromium/issues/detail?id=718352#c10
       img.crossOrigin = 'Anonymous';
-      let imageLoaded = false;
 
       img.onload = () => {
-        imageLoaded = true;
+        clearTimeout(loadTimeoutId);
 
         // faviconMeta.normalisedDataUrl/transparentDataUrl only ever end up as a tab-bar
         // <img>/<link rel="icon"> in suspended.js (setFaviconMeta()) — never rendered above
@@ -464,8 +467,6 @@ export const gsFavicon = (() => {
           }
 
           const origDataArray = imageData.data;
-          const normalisedDataArray = new Uint8ClampedArray(origDataArray);
-          const transparentDataArray = new Uint8ClampedArray(origDataArray);
 
           const fuzzy     = 0.1;
           let   r         = 0;
@@ -500,20 +501,15 @@ export const gsFavicon = (() => {
           const isDark = darkLightDiff + fuzzy < 0;
           const normaliserMultiple = 1 / (maxAlpha / 255);
 
-          for (let x = 0; x < origDataArray.length; x += 4) {
-            a = origDataArray[x + 3];
-            normalisedDataArray[x + 3] = parseInt(String(a * normaliserMultiple), 10);
+          for (let x = 3; x < origDataArray.length; x += 4) {
+            origDataArray[x] = Math.floor(origDataArray[x] * normaliserMultiple);
           }
-          for (let x = 0; x < normalisedDataArray.length; x += 4) {
-            a = normalisedDataArray[x + 3];
-            transparentDataArray[x + 3] = parseInt(String(a * 0.5), 10);
-          }
-
-          imageData.data.set(normalisedDataArray);
           context.putImageData(imageData, 0, 0);
           const normalisedDataUrl = canvas.toDataURL('image/png');
 
-          imageData.data.set(transparentDataArray);
+          for (let x = 3; x < origDataArray.length; x += 4) {
+            origDataArray[x] = Math.floor(origDataArray[x] * 0.5);
+          }
           context.putImageData(imageData, 0, 0);
           const transparentDataUrl = canvas.toDataURL('image/png');
 
@@ -531,11 +527,6 @@ export const gsFavicon = (() => {
           reject('Failed to get canvas context');
         }
       };
-      loadTimeoutId = setTimeout(() => {
-        if (!imageLoaded) {
-          reject(`Failed to load img.src for ${url}`);
-        }
-      }, timeout);
       img.src = url;
     }).finally(() => {
       clearTimeout(loadTimeoutId);

@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createChromeStub } from './setup/chrome-stub.js';
+
+const chromeStub = createChromeStub();
 
 globalThis.chrome = {
-  extension: { inIncognitoContext: false },
+  ...chromeStub,
+  extension: { ...chromeStub.extension, inIncognitoContext: false },
   i18n: {
     getMessage: () => '',
   },

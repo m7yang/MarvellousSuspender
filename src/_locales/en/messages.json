@@ -468,19 +468,19 @@
     "message": "Apply your browser's built-in memory-saving when suspending"
   },
   "html_options_suspend_discard_after_suspend_tooltip_line1a": {
-    "message": "Reduces a suspended tab's memory usage even more, by utilizing"
+    "message": "After a tab is suspended, also let Chrome fully unload it from"
   },
   "html_options_suspend_discard_after_suspend_tooltip_line1b": {
-    "message": "your browser's built-in 'tab discarding' functionality. This can result in up"
+    "message": "memory. This frees up more system resources per tab (useful if"
   },
   "html_options_suspend_discard_after_suspend_tooltip_line1c": {
-    "message": "to 500% memory savings when working with large numbers of tabs."
+    "message": "you keep hundreds of tabs open)."
   },
   "html_options_suspend_discard_after_suspend_tooltip_line2a": {
-    "message": "However, it will also cause a slight rendering delay when selecting"
+    "message": "This comes at the cost of losing tab state until the tab is"
   },
   "html_options_suspend_discard_after_suspend_tooltip_line2b": {
-    "message": "a suspended tab."
+    "message": "reloaded."
   },
   "html_options_suspend_discard_after_suspend_tooltip_line3a": {
     "message": "For more information on tab discarding refer to:"
@@ -529,6 +529,51 @@
   },
   "html_options_suspend_screen_capturing_tooltip_line3b": {
     "message": "crashing unexpectedly, try turning this feature off."
+  },
+  "html_options_suspend_screen_capture_method": {
+    "message": "Capture method"
+  },
+  "html_options_suspend_screen_capture_method_auto": {
+    "message": "Automatic (recommended)"
+  },
+  "html_options_suspend_screen_capture_method_native": {
+    "message": "Browser screenshot only"
+  },
+  "html_options_suspend_screen_capture_method_renderer": {
+    "message": "Page renderer only"
+  },
+  "html_options_suspend_screen_capture_method_tooltip_line1": {
+    "message": "Automatic takes a real browser screenshot when the tab being suspended is the one you are looking at."
+  },
+  "html_options_suspend_screen_capture_method_tooltip_line2": {
+    "message": "That is instant and works on every site. Any other tab is redrawn by the page renderer, which is slower."
+  },
+  "html_options_suspend_screen_capture_method_tooltip_line3": {
+    "message": "Browser screenshot only never runs the page renderer, so tabs suspended in the background get no preview."
+  },
+  "html_options_suspend_screen_capture_method_tooltip_line4": {
+    "message": "A browser screenshot only covers the visible part of the page, even with 'Capture entire page' selected."
+  },
+  "html_options_suspend_screen_capture_precapture": {
+    "message": "Keep a recent screenshot of tabs as I use them"
+  },
+  "html_options_suspend_screen_capture_precapture_tooltip_line1": {
+    "message": "Takes a browser screenshot of a tab about a second after you switch to it or it finishes loading,"
+  },
+  "html_options_suspend_screen_capture_precapture_tooltip_line2": {
+    "message": "so tabs that are later suspended in the background still get a preview."
+  },
+  "html_options_suspend_screen_capture_precapture_tooltip_line3": {
+    "message": "Chrome only lets an extension screenshot a tab you haven't clicked its button on if it has access to all sites,"
+  },
+  "html_options_suspend_screen_capture_precapture_tooltip_line4": {
+    "message": "so turning this on asks for that permission. It is only used to take these screenshots, which stay on this computer."
+  },
+  "html_options_suspend_screen_capture_precapture_tooltip_line5": {
+    "message": "Only the latest screenshot of each open tab is kept, and it is deleted when the tab closes."
+  },
+  "html_options_suspend_screen_capture_precapture_tooltip_line6": {
+    "message": "Incognito tabs and whitelisted sites are never captured."
   },
   "html_options_suspend_force_screen_capture": {
     "message": "Enable high quality screen capture mode"
@@ -831,6 +876,9 @@
   },
   "html_permissions_backup": {
     "message": "Please note: changing this option will cause all your suspended tabs will briefly disappear.\nJust in case, now might be a good time to save a backup of your current tab session."
+  },
+  "html_permissions_return_hint": {
+    "message": "Welcome back — click the button again now to finish granting local file access."
   },
   "html_update_title": {
     "message": "Update"
@@ -1179,7 +1227,7 @@
     "message": "TMS requests the Downloads and Google account permissions only when you enable local or Google Drive backup below."
   },
   "html_permissions_info_note_link": {
-    "message": "See the full permissions breakdown."
+    "message": "See the full permissions breakdown"
   },
   "js_options_backup_now_error": {
     "message": "Chrome is asking where to save files, so automatic backups won't work silently. Disable \"Ask where to save\" in chrome://settings/downloads."

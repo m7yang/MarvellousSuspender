@@ -3,6 +3,7 @@ import  { gsBackup }              from './gsBackup.js';
 import  { gsChrome }              from './gsChrome.js';
 import  { gsIndexedDb }           from './gsIndexedDb.js';
 import  { gsNewsFeed }            from './gsNewsFeed.js';
+import  { gsPrecapture }          from './gsPrecapture.js';
 import  { gsSession }             from './gsSession.js';
 import  { gsStorage }             from './gsStorage.js';
 import  { gsTabSuspendManager }   from './gsTabSuspendManager.js';
@@ -747,9 +748,18 @@ import  { tgs }                   from './tgs.js';
     chrome.windows.onFocusChanged.addListener(async (windowId) => {
       tgs.refreshNeverSuspendGroupMenuItems();
       await tgs.handleWindowFocusChanged(windowId);
+      // Switching between windows without changing either one's active tab fires this,
+      // not tabs.onActivated, so the precapture scheduler would otherwise never see it.
+      if (windowId !== chrome.windows.WINDOW_ID_NONE) {
+        const [activeTab] = await gsChrome.tabsQuery({ active: true, windowId });
+        if (activeTab) {
+          gsPrecapture.schedule(activeTab.id);
+        }
+      }
     });
     chrome.tabs.onActivated.addListener(async (activeInfo) => {
       gsUtils.log(activeInfo.tabId, 'tab onActivated');
+      gsPrecapture.schedule(activeInfo.tabId);
       tgs.refreshNeverSuspendGroupMenuItems();
       await tgs.handleTabFocusChanged(activeInfo.tabId, activeInfo.windowId); // async. unhandled promise
 
@@ -767,6 +777,13 @@ import  { tgs }                   from './tgs.js';
     });
     chrome.tabs.onReplaced.addListener(async (addedTabId, removedTabId) => {
       gsUtils.log(removedTabId, 'tab onReplaced', addedTabId, removedTabId);
+      gsPrecapture.remove(removedTabId);
+      // Prerender/instant-tab promotion keeps the tab on screen but changes its id without
+      // necessarily also firing onActivated, so the promoted tab would otherwise go unscheduled.
+      const addedTab = await gsChrome.tabsGet(addedTabId);
+      if (addedTab?.active) {
+        gsPrecapture.schedule(addedTabId);
+      }
       tgs.queueSessionTimer();
       await tgs.removeTabIdReferences(removedTabId);
     });
@@ -784,26 +801,25 @@ import  { tgs }                   from './tgs.js';
     });
     chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
       gsUtils.log(tabId, 'tab removed.');
+      gsPrecapture.remove(tabId);
       tgs.queueSessionTimer();
       await tgs.removeTabIdReferences(tabId);
     });
 
     async function claimTab(tabId) {
-      const tabs  = await gsChrome.tabsQuery();
-      for (const tab of tabs) {
-        const url = tab.url ?? '';
-        if (
-          tab.id == tabId &&
-          url.match('^chrome-extension://[^/]*/suspended\\.html') &&    // Match any extension with suspended.html at the end
-          gsUtils.isSuspendedTab(tab, true) &&
-          !url.includes(chrome.runtime.id)                              // But exclude our own extension ID
-        ) {
-          const newUrl = url.replace(
-            gsUtils.getRootUrl(tab.url),
-            chrome.runtime.id,
-          );
-          await gsChrome.tabsUpdate(tab.id, { url: newUrl });
-        }
+      const tab = await gsChrome.tabsGet(tabId);
+      if (!tab) return;
+      const url = tab.url ?? '';
+      if (
+        url.match('^chrome-extension://[^/]*/suspended\\.html') &&    // Match any extension with suspended.html at the end
+        gsUtils.isSuspendedTab(tab, true) &&
+        !url.includes(chrome.runtime.id)                              // But exclude our own extension ID
+      ) {
+        const newUrl = url.replace(
+          gsUtils.getRootUrl(tab.url),
+          chrome.runtime.id,
+        );
+        await gsChrome.tabsUpdate(tab.id, { url: newUrl });
       }
     };
 
@@ -828,6 +844,13 @@ import  { tgs }                   from './tgs.js';
         return;
       }
       gsUtils.log(tabId, 'tab onUpdated', changeInfo, tab.url);
+
+      if (changeInfo.url) {
+        gsPrecapture.remove(tabId);
+      }
+      if (tab.active && (changeInfo.url || changeInfo.status === 'complete')) {
+        gsPrecapture.schedule(tabId);
+      }
 
       if (changeInfo.status === 'complete' && await gsStorage.getOption(gsStorage.CLAIM_BY_DEFAULT)) {
         await claimTab(tabId);
@@ -949,6 +972,20 @@ import  { tgs }                   from './tgs.js';
   chrome.commands.onCommand.addListener(commandListener);
   chrome.contextMenus.onClicked.addListener(contextMenuListener);
   chrome.alarms.onAlarm.addListener(alarmListener);
+  // A file:// tab already open and backgrounded when the file:///* host permission is
+  // granted (permissions.js) never fires a chrome.tabs.onUpdated event of its own, so it
+  // never re-runs the isNormalTab() check that would now include it and arm its
+  // auto-suspend timer - it would otherwise stay unscheduled until some unrelated tab
+  // event happens to touch it (Codex review, #514). gsSession's own onAdded listener
+  // (registered in every context) only refreshes its cached flags; this background-only
+  // one re-scans every open tab, the same way a settings change already does.
+  chrome.permissions.onAdded.addListener(async (permissions) => {
+    if (!permissions.origins?.includes('file:///*')) return;
+    await gsSession.ensureFileUrlsStateReady();
+    if (gsSession.isFileUrlsUsable()) {
+      tgs.resetAutoSuspendTimerForAllTabs();
+    }
+  });
   addChromeListeners();
   addMiscListeners();
 

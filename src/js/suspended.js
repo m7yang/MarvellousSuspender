@@ -517,6 +517,14 @@ import  { tgs }                   from './tgs.js';
   // than relying on tgs.js retrying a fixed number of times against an unbounded wait.
   gsUtils.documentReadyAsPromised(window.document).then(() => {
     chrome.runtime.onMessage.addListener(messageRequestListener);
+    // Show Chrome's cached site icon without waiting for the background initTab
+    // message. Keep IndexedDB reads, image fingerprinting and faded-icon generation
+    // in initTab(), behind tgs.js's concurrency limit. This synchronous assignment
+    // cannot race a later initTab() result or start a duplicate favicon resolution.
+    const originalUrl = gsUtils.getOriginalUrl(window.location.href);
+    if (originalUrl) {
+      document.getElementById('gsFavicon').setAttribute('href', gsFavicon.getChromeFavIconUrl(originalUrl));
+    }
   });
 
   gsUtils.documentReadyAndLocalisedAsPromised(window).then(function() {

@@ -312,15 +312,17 @@ export const gsSession = (function() {
   // by Tab Health, so it is deliberately not counted here. gsMascot.resolveBothUrls()
   // matches both the current and the legacy-mascot extension-icon URL regardless of the
   // gsLegacyMascot setting: a tab can still carry the other variant after the option was
-  // toggled, and gsFavicon's repair path rejects both to match.
+  // toggled, and gsFavicon's repair path rejects both to match. The Chrome _favicon cache
+  // URL is also counted: suspended.js shows it only as a placeholder until initTab lands.
   async function countTabsWithBrokenSuspendedFavicon() {
     const extensionFaviconUrls = gsMascot.resolveBothUrls('img/ic_suspendy_16x16.webp');
+    const placeholderFaviconPrefix = chrome.runtime.getURL('/_favicon/');
     const tabs = await gsChrome.tabsQuery();
     let broken = 0;
     for (const tab of tabs) {
       if (!gsUtils.isSuspendedTab(tab)) continue;
       const fav = tab.favIconUrl;
-      if (!fav || extensionFaviconUrls.includes(fav)) broken++;
+      if (!fav || extensionFaviconUrls.includes(fav) || fav.startsWith(placeholderFaviconPrefix)) broken++;
     }
     return broken;
   }

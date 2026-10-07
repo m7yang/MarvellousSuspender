@@ -432,8 +432,6 @@ export const gsFavicon = (() => {
       img.crossOrigin = 'Anonymous';
 
       img.onload = () => {
-        clearTimeout(loadTimeoutId);
-
         // faviconMeta.normalisedDataUrl/transparentDataUrl only ever end up as a tab-bar
         // <img>/<link rel="icon"> in suspended.js (setFaviconMeta()) — never rendered above
         // a few dozen px regardless of source resolution. Some sites serve a much larger

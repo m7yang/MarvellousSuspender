@@ -20,4 +20,13 @@ describe('favicon repair backstop count (#523)', () => {
     ]);
     expect(await gsSession.countTabsWithBrokenSuspendedFavicon()).toBe(2);
   });
+
+  it('counts the fork cached-favicon placeholder only while its tab is loaded', async () => {
+    const cachedIcon = chrome.runtime.getURL('_favicon/?pageUrl=https%3A%2F%2Fexample.com%2F&size=32');
+    vi.spyOn(gsChrome, 'tabsQuery').mockResolvedValue([
+      { id: 1, url: suspendedUrl, discarded: false, favIconUrl: cachedIcon },
+      { id: 2, url: suspendedUrl, discarded: true, favIconUrl: cachedIcon },
+    ]);
+    expect(await gsSession.countTabsWithBrokenSuspendedFavicon()).toBe(1);
+  });
 });

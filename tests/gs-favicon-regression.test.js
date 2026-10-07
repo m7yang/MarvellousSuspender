@@ -260,3 +260,33 @@ test('successful favicon generation clears its pending image timeout', async () 
     globalThis.clearTimeout = originalClearTimeout;
   }
 });
+
+test('favicon setup failures still clear the pending image timeout', async () => {
+  const originalImage = globalThis.Image;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const timeoutHandle = { id: 'failed-favicon-load-timeout' };
+  const failure = new Error('Image setup failed');
+  const clearedTimeouts = [];
+
+  globalThis.setTimeout = () => timeoutHandle;
+  globalThis.clearTimeout = (handle) => clearedTimeouts.push(handle);
+
+  try {
+    globalThis.Image = function FailingImage() { throw failure; };
+    await assert.rejects(gsFavicon.buildFaviconMeta('data:image/png;base64,SOURCE'), failure);
+    assert.deepEqual(clearedTimeouts, [timeoutHandle]);
+
+    clearedTimeouts.length = 0;
+    globalThis.Image = class {
+      set src(value) { throw failure; }
+    };
+    await assert.rejects(gsFavicon.buildFaviconMeta('data:image/png;base64,SOURCE'), failure);
+    assert.deepEqual(clearedTimeouts, [timeoutHandle]);
+  }
+  finally {
+    globalThis.Image = originalImage;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
+});

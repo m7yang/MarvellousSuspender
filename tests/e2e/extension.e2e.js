@@ -185,7 +185,11 @@ describe('suspending and unsuspending', () => {
 
     const sessionId = await cdp.attach(tab.targetId);
     await waitFor('the placeholder to be ready for a click', () => cdp.evaluate(sessionId, PLACEHOLDER_READY));
-    expect(await cdp.evaluate(sessionId, 'document.getElementById("gsTopBarUrl").textContent')).toContain('127.0.0.1');
+    // The fork replaces upstream's URL link with an editable input after initialization.
+    const displayedUrl = await waitFor('the URL editor to show the original page', () => cdp.evaluate(sessionId, `
+      document.querySelector('input#gsTopBarUrl')?.value
+    `));
+    expect(displayedUrl).toBe(server.url('page.html'));
 
     await cdp.activate(tab);
     await cdp.click(sessionId, '#suspendedMsg');

@@ -86,6 +86,8 @@ export async function launchChrome({ extensionDir }) {
     '--no-first-run',
     '--no-default-browser-check',
     '--window-size=1200,900',
+    // A system proxy can resolve hostnames itself, bypassing the rules below.
+    '--no-proxy-server',
     // Nothing leaves the machine: every name but the fixture server's address fails to
     // resolve. The extension fetches its news feed at startup, and Chrome has traffic of
     // its own.

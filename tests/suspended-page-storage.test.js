@@ -2,20 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createChromeStub } from './setup/chrome-stub.js';
 
-const chromeStub = createChromeStub();
-
-globalThis.chrome = {
-  ...chromeStub,
-  extension: { ...chromeStub.extension, inIncognitoContext: false },
-  i18n: {
-    getMessage: () => '',
-  },
-  runtime: {
-    getURL: (path = '') => `chrome-extension://test/${path}`,
-    id: 'test',
-    lastError: null,
-  },
-};
+globalThis.chrome = createChromeStub();
 
 const { gsStorage } = await import('../src/js/gsStorage.js');
 

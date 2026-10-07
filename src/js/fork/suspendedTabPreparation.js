@@ -20,8 +20,9 @@ export async function saveSuspendedTabInfo(tab) {
 }
 
 /**
- * Persist the tab metadata, then build the Suspended Page URL only after
- * persistence has completed.
+ * Wait for the metadata write attempt before building the Suspended Page URL.
+ * IndexedDB reports write failures itself; metadata remains best-effort so a
+ * cache failure does not prevent suspension or session restoration.
  *
  * @param {chrome.tabs.Tab} tab
  * @param {number | string} [scrollPosition]

@@ -2,59 +2,20 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createChromeStub } from './setup/chrome-stub.js';
 
-const localState = {
+globalThis.chrome = createChromeStub();
+await chrome.storage.local.set({
   gsSettings: {
     discardInPlaceOfSuspend: false,
   },
-};
+});
 let tabUpdateCount = 0;
 
-function pick(state, keys) {
-  return Object.fromEntries(
-    keys
-      .filter((key) => Object.hasOwn(state, key))
-      .map((key) => [key, state[key]]),
-  );
-}
-
-const chromeStub = createChromeStub();
-
-globalThis.chrome = {
-  ...chromeStub,
-  extension: { ...chromeStub.extension, inIncognitoContext: false },
-  i18n: {
-    getMessage: () => '',
-  },
-  runtime: {
-    getManifest: () => ({ version: '0.0.0' }),
-    getURL: (path = '') => `chrome-extension://test/${path}`,
-    id: 'test',
-    lastError: null,
-  },
-  storage: {
-    onChanged: { addListener: () => {} },
-    local: {
-      get: async (keys, callback) => {
-        const result = pick(localState, keys);
-        callback?.(result);
-        return result;
-      },
-      set: async (values) => Object.assign(localState, values),
-    },
-    session: {
-      get: async () => ({}),
-      set: async () => {
-        throw new Error('session storage rejected');
-      },
-    },
-  },
-  tabs: {
-    update: (_tabId, _properties, callback) => {
-      tabUpdateCount += 1;
-      callback({ id: _tabId });
-    },
-  },
-  windows: {},
+chrome.storage.session.set = async () => {
+  throw new Error('session storage rejected');
+};
+chrome.tabs.update = (tabId, _properties, callback) => {
+  tabUpdateCount += 1;
+  callback({ id: tabId });
 };
 
 const { gsTabSuspendManager } = await import('../src/js/gsTabSuspendManager.js');
@@ -68,7 +29,7 @@ test('suspension settles false without navigating when session state cannot pers
         title: 'Example',
         url: 'https://example.com/',
       },
-      'chrome-extension://test/suspended.html#uri=https://example.com/',
+      chrome.runtime.getURL('suspended.html#uri=https://example.com/'),
     ),
     new Promise((resolve) => {
       setTimeout(() => resolve(didNotSettle), 25);

@@ -2,20 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createChromeStub } from './setup/chrome-stub.js';
 
-const chromeStub = createChromeStub();
-
-globalThis.chrome = {
-  ...chromeStub,
-  extension: { ...chromeStub.extension, inIncognitoContext: false },
-  runtime: {
-    id: 'test-extension-id',
-    getURL: (path) => `chrome-extension://test-extension-id/${path}`,
-    getManifest: () => ({ version: '0.0.0' }),
-  },
-  i18n: { getMessage: () => '' },
-  tabs: {},
-  windows: {},
-};
+globalThis.chrome = createChromeStub();
 
 const [
   { gsFavicon },
@@ -31,9 +18,7 @@ const [
 
 const originalUrl = 'https://github.com/emilkowalski/sonner';
 const savedFavIconUrl = 'https://github.githubassets.com/favicons/favicon.svg';
-const suspendedUrl =
-  'chrome-extension://test-extension-id/suspended.html' +
-  '#ttl=sonner&pos=0&uri=https://github.com/emilkowalski/sonner';
+const suspendedUrl = `${chrome.runtime.getURL('suspended.html')}#ttl=sonner&pos=0&uri=${originalUrl}`;
 const cachedFaviconMeta = {
   v: 2,
   favIconUrl: savedFavIconUrl,
@@ -152,7 +137,7 @@ test('generic Suspended Pages recover saved favicon sources without weakening so
   }
 });
 
-test('Jira refreshes a cached favicon only when its source URL changes', async () => {
+test('Jira lazily replaces legacy path caches and refreshes only when its source changes', async () => {
   const restoreDom = installFaviconDom();
   const originalFetch = globalThis.fetch;
   const originalFileReader = globalThis.FileReader;
@@ -164,7 +149,9 @@ test('Jira refreshes a cached favicon only when its source URL changes', async (
     log: gsUtils.log,
   };
 
-  const jiraUrl = 'https://team.atlassian.net/browse/ABC-42';
+  const jiraUrl = 'https://team.atlassian.net/jira/software/c/projects/ABC/boards/7?selectedIssue=ABC-42';
+  const legacyCacheKey = 'team.atlassian.net/jira/software/c/projects/ABC/boards/7';
+  const issueCacheKey = 'team.atlassian.net/__atlassian_favicon__/issue/ABC-42';
   const cachedSourceUrl =
     'https://team.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10001';
   const changedSourceUrl =
@@ -176,10 +163,15 @@ test('Jira refreshes a cached favicon only when its source URL changes', async (
     normalisedDataUrl: 'data:image/png;base64,CACHED_NORMAL',
     transparentDataUrl: 'data:image/png;base64,CACHED_TRANSPARENT',
   };
+  const cache = new Map([[legacyCacheKey, cachedMeta]]);
+  const readCacheKeys = [];
   const fetchedUrls = [];
 
-  gsIndexedDb.fetchFaviconMeta = async () => cachedMeta;
-  gsIndexedDb.addFaviconMeta = async () => {};
+  gsIndexedDb.fetchFaviconMeta = async (key) => {
+    readCacheKeys.push(key);
+    return cache.get(key);
+  };
+  gsIndexedDb.addFaviconMeta = async (key, meta) => cache.set(key, meta);
   gsStorage.getOption = async () => false;
   gsStorage.getStorageJSON = async () => ({
     default: 'data:image/png;base64,DEFAULT_FINGERPRINT',
@@ -200,10 +192,22 @@ test('Jira refreshes a cached favicon only when its source URL changes', async (
   };
 
   try {
+    const migratedResult = await gsFavicon.getFaviconMeta({
+      url: jiraUrl,
+      favIconUrl: cachedSourceUrl,
+    });
+    assert.equal(migratedResult.favIconUrl, cachedSourceUrl);
+    assert.notEqual(migratedResult.normalisedDataUrl, cachedMeta.normalisedDataUrl);
+    assert.deepEqual(cache.get(issueCacheKey), migratedResult);
+    assert.deepEqual(fetchedUrls, [cachedSourceUrl]);
+
     const cachedResult = await gsFavicon.getFaviconMeta({
       url: jiraUrl,
       favIconUrl: cachedSourceUrl,
     });
+    assert.deepEqual(cachedResult, migratedResult);
+    assert.deepEqual(fetchedUrls, [cachedSourceUrl]);
+
     const refreshedResult = await gsFavicon.getFaviconMeta({
       url: jiraUrl,
       favIconUrl: changedSourceUrl,
@@ -216,11 +220,14 @@ test('Jira refreshes a cached favicon only when its source URL changes', async (
         fetchedUrls,
       },
       {
-        cachedNormalisedDataUrl: cachedMeta.normalisedDataUrl,
+        cachedNormalisedDataUrl: migratedResult.normalisedDataUrl,
         refreshedSourceUrl: changedSourceUrl,
-        fetchedUrls: [changedSourceUrl],
+        fetchedUrls: [cachedSourceUrl, changedSourceUrl],
       },
     );
+    assert.deepEqual(readCacheKeys, [issueCacheKey, issueCacheKey, issueCacheKey]);
+    assert.deepEqual(cache.get(issueCacheKey), refreshedResult);
+    assert.deepEqual(cache.get(legacyCacheKey), cachedMeta);
   }
   finally {
     restoreDom();

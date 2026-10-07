@@ -2,20 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createChromeStub } from './setup/chrome-stub.js';
 
-const chromeStub = createChromeStub();
-
-globalThis.chrome = {
-  ...chromeStub,
-  extension: { ...chromeStub.extension, inIncognitoContext: false },
-  runtime: {
-    id: 'test-extension-id',
-    getURL: (path) => `chrome-extension://test-extension-id/${path}`,
-    getManifest: () => ({ version: '0.0.0' }),
-  },
-  i18n: { getMessage: () => '' },
-  tabs: {},
-  windows: {},
-};
+globalThis.chrome = createChromeStub();
 
 const [
   { prepareSuspendedTab },

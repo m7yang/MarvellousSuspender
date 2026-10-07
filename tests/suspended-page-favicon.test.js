@@ -2,20 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createChromeStub } from './setup/chrome-stub.js';
 
-const chromeStub = createChromeStub();
-globalThis.chrome = {
-  ...chromeStub,
-  extension: { ...chromeStub.extension, inIncognitoContext: false },
-  runtime: {
-    id: 'test-extension-id',
-    getURL: (path) => new URL(path, 'chrome-extension://test-extension-id/').href,
-    getManifest: () => ({ version: '0.0.0' }),
-    onMessage: { addListener: () => {} },
-  },
-  i18n: { getMessage: () => '' },
-  tabs: {},
-  windows: {},
-};
+globalThis.chrome = createChromeStub();
 
 const [{ gsUtils }, { showCachedFavicon, isCachedFaviconPlaceholder }] = await Promise.all([
   import('../src/js/gsUtils.js'),
@@ -63,6 +50,6 @@ test('isCachedFaviconPlaceholder only matches the Chrome favicon cache URL', () 
   assert.equal(isCachedFaviconPlaceholder(undefined), false);
   assert.equal(isCachedFaviconPlaceholder('not a url'), false);
   assert.equal(isCachedFaviconPlaceholder('data:image/png;base64,AAAA'), false);
-  assert.equal(isCachedFaviconPlaceholder('chrome-extension://test-extension-id/img/ic_suspendy_16x16.webp'), false);
+  assert.equal(isCachedFaviconPlaceholder(chrome.runtime.getURL('img/ic_suspendy_16x16.webp')), false);
   assert.equal(isCachedFaviconPlaceholder('https://example.com/_favicon/'), false);
 });

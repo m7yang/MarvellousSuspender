@@ -14,43 +14,23 @@ const timersCreated = new Promise((resolve) => {
   resolveTimersCreated = resolve;
 });
 
-const chromeStub = createChromeStub();
-
-globalThis.chrome = {
-  ...chromeStub,
-  extension: { ...chromeStub.extension, inIncognitoContext: false },
-  alarms: {
-    clear: async () => true,
-    getAll(callback) {
-      callback([]);
-    },
-    create(name, details) {
-      createdAlarms.push({ name, details });
-      if (createdAlarms.length === tabs.length) {
-        resolveTimersCreated();
-      }
-      return Promise.resolve();
-    },
-  },
-  i18n: { getMessage: () => '' },
-  runtime: {
-    getManifest: () => ({ version: '0.0.0' }),
-    getURL: (path = '') => `chrome-extension://test-extension-id/${path}`,
-    id: 'test-extension-id',
-    lastError: null,
-  },
-  tabs: {
-    query(queryInfo, callback) {
-      assert.deepEqual(queryInfo, {});
-      callback(tabs);
-    },
-  },
-  windows: {
-    get(windowId, options, callback) {
-      windowLookupCount += 1;
-      callback({ id: windowId, type: 'normal' });
-    },
-  },
+globalThis.chrome = createChromeStub();
+chrome.alarms.clear = async () => true;
+chrome.alarms.getAll = (callback) => callback([]);
+chrome.alarms.create = (name, details) => {
+  createdAlarms.push({ name, details });
+  if (createdAlarms.length === tabs.length) {
+    resolveTimersCreated();
+  }
+  return Promise.resolve();
+};
+chrome.tabs.query = (queryInfo, callback) => {
+  assert.deepEqual(queryInfo, {});
+  callback(tabs);
+};
+chrome.windows.get = (windowId, options, callback) => {
+  windowLookupCount += 1;
+  callback({ id: windowId, type: 'normal' });
 };
 
 const [

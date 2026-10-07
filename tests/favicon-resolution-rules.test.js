@@ -4,20 +4,8 @@ import { createChromeStub } from './setup/chrome-stub.js';
 
 import { faviconResolutionRules } from '../src/js/fork/faviconResolutionRules.js';
 
-async function loadGsUtils() {
-  const chromeStub = createChromeStub();
-  globalThis.chrome = {
-    ...chromeStub,
-    extension: { ...chromeStub.extension, inIncognitoContext: false },
-    runtime: {
-      id: 'test-extension-id',
-      getURL: (path) => `chrome-extension://test-extension-id/${path}`,
-      getManifest: () => ({ version: '0.0.0' }),
-    },
-    i18n: { getMessage: () => '' },
-  };
-  return (await import('../src/js/gsUtils.js')).gsUtils;
-}
+globalThis.chrome = createChromeStub();
+const { gsUtils } = await import('../src/js/gsUtils.js');
 
 test('Jira issue routes use issue identity instead of a shared tenant cache entry', () => {
   const pageUrl = 'https://team.atlassian.net/jira/software/c/projects/ABC/boards/7?selectedIssue=abc-42';
@@ -222,8 +210,7 @@ test('favicon transport embeds only approved sources for Atlassian pages', () =>
   );
 });
 
-test('suspended URL transport round-trips an approved favicon before the trailing raw URI', async () => {
-  const gsUtils = await loadGsUtils();
+test('suspended URL transport round-trips an approved favicon before the trailing raw URI', () => {
   const pageUrl = 'https://team.atlassian.net/browse/ABC-42?focusedCommentId=100&src=tab';
   const sourceUrl = 'https://team.atlassian.net/rest/api/2/universal_avatar/view/type/issuetype/avatar/10001?size=small&x=1';
 
@@ -235,8 +222,7 @@ test('suspended URL transport round-trips an approved favicon before the trailin
   assert.ok(suspendedUrl.endsWith(`&uri=${pageUrl}`));
 });
 
-test('suspended URL transport omits unapproved favicon sources', async () => {
-  const gsUtils = await loadGsUtils();
+test('suspended URL transport omits unapproved favicon sources', () => {
   const suspendedUrl = gsUtils.generateSuspendedUrl(
     'https://team.atlassian.net/browse/ABC-42',
     'Issue ABC-42',

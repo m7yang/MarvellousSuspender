@@ -1322,6 +1322,9 @@ export const tgs = (function() {
 
   async function initialiseSuspendedTab(tab) {
     gsUtils.log( tab.id, 'tgs', 'initialiseSuspendedTab' );
+    // Captured now: a startup check pending when the page loaded covers it, even if that
+    // check settles (and drops its reservation) before this initTab finishes (#523).
+    const coveredByPendingCheck = gsTabCheckManager.hasPendingTabCheck(tab);
     const tabState = await getTabStateForTabId(tab.id);
     const unloadedUrl = tabState?.[STATE_UNLOADED_URL];
     const disableUnsuspendOnReload = tabState?.[STATE_DISABLE_UNSUSPEND_ON_RELOAD];
@@ -1386,6 +1389,10 @@ export const tgs = (function() {
       // second, fully duplicate 'initTab', exactly the concurrent-work multiplication
       // treating the timeout as terminal was meant to prevent in the first place.
       if (token.cancelled || sendFailed) return;
+      // A check already queued or running, or one a startup pass will still run (e.g. a
+      // restored page loading before its worker reaches it), verifies the page itself.
+      // Queueing here would add a job outside that startup budget (#523).
+      if (coveredByPendingCheck || gsTabCheckManager.hasPendingTabCheck(freshTab)) return;
       gsTabCheckManager.queueTabCheck(freshTab, { refetchTab: true }, 3000);
     });
   }
@@ -1422,24 +1429,19 @@ export const tgs = (function() {
   // above what even a loaded page needs.
   const INIT_TAB_MESSAGE_TIMEOUT_MS = 10000;
 
-  // _withTimeout() below can only ever reject its own wrapper promise early — it has no
+  // gsUtils.withTimeout() can only ever settle its own wrapper promise early — it has no
   // way to actually cancel the underlying chrome.tabs.sendMessage() call or, more to the
   // point, whatever real work the receiving page's initTab() is already doing by the time
   // the timeout fires. Tagging the timeout's own Error lets the retry logic below tell
   // "this specific attempt's wrapper gave up waiting" apart from "the send itself failed
   // quickly" (no receiver yet, page still loading its own script) — the two need very
   // different handling just below.
-  function _withTimeout(promise, ms) {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const error = new Error(`Timed out after ${ms}ms`);
-        error.isInitTabTimeout = true;
-        reject(error);
-      }, ms);
-      promise.then(
-        (value) => { clearTimeout(timer); resolve(value); },
-        (error) => { clearTimeout(timer); reject(error); }
-      );
+  function sendInitTabMessageOnce(tabId, payload) {
+    const ms = INIT_TAB_MESSAGE_TIMEOUT_MS;
+    return gsUtils.withTimeout(chrome.tabs.sendMessage(tabId, payload), ms, () => {
+      const error = new Error(`Timed out after ${ms}ms`);
+      error.isInitTabTimeout = true;
+      throw error;
     });
   }
 
@@ -1450,7 +1452,7 @@ export const tgs = (function() {
   // this loop itself.
   function sendInitTabMessageWithRetry(tabId, payload, token, attempt = 0) {
     if (token?.cancelled) return Promise.resolve();
-    return _withTimeout(chrome.tabs.sendMessage(tabId, payload), INIT_TAB_MESSAGE_TIMEOUT_MS).catch((error) => {
+    return sendInitTabMessageOnce(tabId, payload).catch((error) => {
       // A timeout here doesn't mean the send failed — it means this wrapper gave up
       // waiting on it. The real chrome.tabs.sendMessage() call, and whatever real work
       // (favicon decode, canvas, preview setup) the receiving page's initTab() started

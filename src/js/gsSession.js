@@ -319,7 +319,10 @@ export const gsSession = (function() {
     const tabs = await gsChrome.tabsQuery();
     let broken = 0;
     for (const tab of tabs) {
-      if (!gsUtils.isSuspendedTab(tab)) continue;
+      // A discarded placeholder is left asleep on purpose (#523): no pass loads it, so its
+      // favicon stays the extension's until the user visits it. Counting it would spend
+      // the backstop's attempts on tabs it cannot repair.
+      if (!gsUtils.isSuspendedTab(tab) || gsUtils.isDiscardedTab(tab)) continue;
       const fav = tab.favIconUrl;
       if (!fav || extensionFaviconUrls.includes(fav) || isCachedFaviconPlaceholder(fav)) broken++;
     }
@@ -1056,6 +1059,7 @@ export const gsSession = (function() {
     performTabChecks,
     ensureFaviconRepairForSession,
     repairFaviconsNow,
+    countTabsWithBrokenSuspendedFavicon,
     FAVICON_REPAIR_ALARM_NAME,
   };
 })();

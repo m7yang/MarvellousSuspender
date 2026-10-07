@@ -11,6 +11,11 @@ Entries under "Unreleased" live on a feature branch until merged into `master`.
 
 ### Fork integration
 - Sync upstream through `353e1f81`, including startup recovery, atomic preview writes, and locale-code migrations. Remove the fork's extra app/popup suspension guard: app windows follow upstream's "Never suspend app windows" setting and "Always suspend" list, and popup windows follow ordinary upstream suspension rules.
+- The Suspended Page keeps an editable original URL, a reload button that leaves the tab suspended, platform-specific shortcut formatting, a compact loading indicator, and browser-default fonts.
+- URL editing accepts hostnames with ports, such as `localhost:3000`, and does not submit or cancel edits while confirming IME composition.
+- Favicon handling retains issue-specific Jira icons, approved remote image normalization, early Chrome-cached icons, and saved original favicon sources during suspension and session restore.
+- Existing Jira favicon caches migrate lazily: old path/board keys are no longer used for individual issues, whose icons are rebuilt under issue-specific keys on first resolution. This deliberately avoids assigning one issue another issue's old board icon; unused legacy entries age out through the existing cache trimming.
+- Suspension and Reload Suspended Page wait for session-state writes and stop navigation if those writes fail.
 
 ### Locale folders Chrome can load
 - Ukrainian and Sinhala now load for the "auto" language. Their `_locales` folders were named `uk-UA` and `si-LK`, which are not codes Chrome recognises, so Chrome skipped them and fell back to English (checked in Chrome for Testing 154 with `--lang=uk` and `--lang=si`: `uk-UA`/`si-LK`/`uk_UA`/`si_LK` load English, `uk`/`si` load the folder). They are now `uk` and `si`. Picking them explicitly in Options → Language already worked, because that path fetches the folder by name.

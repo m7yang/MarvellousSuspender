@@ -24,6 +24,10 @@ import  { showCachedFavicon }     from './suspendedPageFavicon.js';
     if (!trimmed) {
       return null;
     }
+    // A hostname and numeric port can otherwise look like a custom URI scheme.
+    if (/^(?:localhost|[\w-]+(?:\.[\w-]+)+):\d+(?:[/?#]|$)/i.test(trimmed)) {
+      return `https://${trimmed}`;
+    }
     if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
       return trimmed;
     }
@@ -86,6 +90,9 @@ import  { showCachedFavicon }     from './suspendedPageFavicon.js';
     input.addEventListener('click', stopWakeHandler, true);
     input.addEventListener('keydown', (event) => {
       stopWakeHandler(event);
+      if (event.isComposing) {
+        return;
+      }
       if (event.key === 'Enter') {
         event.preventDefault();
         const target = normalizeUrlInput(input.value);

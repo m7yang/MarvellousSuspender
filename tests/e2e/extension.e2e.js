@@ -198,6 +198,75 @@ describe('suspending and unsuspending', () => {
   });
 });
 
+describe('the suspended URL editor', () => {
+  async function openEditor() {
+    const tab = await openPage();
+    const sessionId = await navigateToPlaceholder(tab, placeholder(server.url('page.html')));
+    await waitFor('the URL editor to show the original page', () => cdp.evaluate(sessionId, `
+      document.querySelector('input#gsTopBarUrl')?.value === ${JSON.stringify(server.url('page.html'))}
+    `));
+    await cdp.activate(tab);
+    await cdp.click(sessionId, '#gsTopBarUrl');
+    return { ...tab, sessionId };
+  }
+
+  async function pressKey(sessionId, key) {
+    const keyCode = key === 'Enter' ? 13 : 27;
+    for (const type of ['keyDown', 'keyUp']) {
+      await cdp.send('Input.dispatchKeyEvent', {
+        type, key, code: key, windowsVirtualKeyCode: keyCode,
+      }, sessionId);
+    }
+  }
+
+  it.each(['editor.e2e.invalid', 'localhost'])('adds HTTPS to a schemeless %s address with a port', async (hostname) => {
+    const tab = await openEditor();
+    const address = `${hostname}:${new URL(server.origin).port}/other.html`;
+    await cdp.evaluate(tab.sessionId, `document.getElementById('gsTopBarUrl').value = ${JSON.stringify(address)}`);
+
+    await pressKey(tab.sessionId, 'Enter');
+
+    // DNS isolation (or HTTPS against the HTTP fixture) prevents a successful load,
+    // but Chrome must still navigate to the requested HTTPS URL, not a custom scheme.
+    await cdp.waitForUrl(tab.targetId, 'the edited HTTPS address', (url) => url === `https://${address}`, { timeout: 3000 });
+  });
+
+  it.each(['Enter', 'Escape'])('ignores %s during IME composition and handles it after composition', async (key) => {
+    const tab = await openEditor();
+    const editedUrl = server.url('other.html');
+    const composing = await cdp.evaluate(tab.sessionId, `(() => {
+      const input = document.getElementById('gsTopBarUrl');
+      input.value = ${JSON.stringify(editedUrl)};
+      input.dispatchEvent(new KeyboardEvent('keydown', {
+        key: ${JSON.stringify(key)}, isComposing: true, bubbles: true, cancelable: true,
+      }));
+      return {
+        value: input.value,
+        focused: document.activeElement === input,
+        waking: document.body.classList.contains('waking'),
+        spinning: document.getElementById('urlSpinner').classList.contains('loading'),
+      };
+    })()`);
+    expect(composing).toEqual({ value: editedUrl, focused: true, waking: false, spinning: false });
+    expect(isPlaceholder(await cdp.urlOf(tab.targetId))).toBe(true);
+
+    await pressKey(tab.sessionId, key);
+
+    if (key === 'Enter') {
+      // An explicitly supplied HTTP scheme must remain HTTP.
+      await cdp.waitForUrl(tab.targetId, 'the edited fixture to load', (url) => url === editedUrl);
+    }
+    else {
+      const restored = await cdp.evaluate(tab.sessionId, `(() => {
+        const input = document.getElementById('gsTopBarUrl');
+        return { value: input.value, focused: document.activeElement === input };
+      })()`);
+      expect(restored).toEqual({ value: server.url('page.html'), focused: false });
+      expect(isPlaceholder(await cdp.urlOf(tab.targetId))).toBe(true);
+    }
+  });
+});
+
 describe('a placeholder url forged by a web page', () => {
   it.each([
     ['chrome:', 'chrome://settings/'],

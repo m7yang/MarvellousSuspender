@@ -41,11 +41,7 @@ beforeEach(async () => {
   originalChrome = globalThis.chrome;
   vi.resetModules();
   globalThis.chrome = createChromeStub();
-  chrome.windows.get = vi.fn((windowId, options, callback) => {
-    const window = { id: windowId, type: 'normal' };
-    callback?.(window);
-    return Promise.resolve(window);
-  });
+  chrome.windows.get = vi.fn(async () => ({ id: 1, type: 'normal' }));
   chrome.tabGroups.get = vi.fn((groupId, callback) => callback({ id: groupId, color: 'blue', title: 'Work' }));
 
   ({ gsStorage } = await import('../src/js/gsStorage.js'));
@@ -279,37 +275,24 @@ describe('checkTabEligibilityForSuspension at force level 3', () => {
   });
 
   it('respects the app window option during Automatic Suspension', async () => {
-    chrome.windows.get.mockImplementation((windowId, options, callback) => {
-      const window = { id: windowId, type: 'app' };
-      callback?.(window);
-      return Promise.resolve(window);
-    });
+    chrome.windows.get.mockResolvedValue({ id: 1, type: 'app' });
     await expect(check(makeTab(), 3)).resolves.toBe(false);
     await setOptions({ IGNORE_APP_WINDOWS: false });
     await expect(check(makeTab(), 3)).resolves.toBe(true);
   });
 
   it('lets Always Suspend override app window protection during Automatic Suspension', async () => {
-    chrome.windows.get.mockImplementation((windowId, options, callback) => {
-      const window = { id: windowId, type: 'app' };
-      callback?.(window);
-      return Promise.resolve(window);
-    });
+    chrome.windows.get.mockResolvedValue({ id: 1, type: 'app' });
     await expect(check(makeTab(), 3)).resolves.toBe(false);
     await setOptions({ ALWAYS_SUSPEND_LIST: 'example.com' });
     await expect(check(makeTab(), 3)).resolves.toBe(true);
   });
 
-  it('keeps popup windows protected only from Automatic Suspension', async () => {
-    chrome.windows.get.mockImplementation((windowId, options, callback) => {
-      const window = { id: windowId, type: 'popup' };
-      callback?.(window);
-      return Promise.resolve(window);
-    });
-    await setOptions({ IGNORE_APP_WINDOWS: false, ALWAYS_SUSPEND_LIST: 'example.com' });
+  it('does not treat popup windows as protected app windows', async () => {
+    chrome.windows.get.mockResolvedValue({ id: 1, type: 'popup' });
     await expect(check(makeTab(), 1)).resolves.toBe(true);
     await expect(check(makeTab(), 2)).resolves.toBe(true);
-    await expect(check(makeTab(), 3)).resolves.toBe(false);
+    await expect(check(makeTab(), 3)).resolves.toBe(true);
   });
 
   // navigator.onLine is stubbed in every case: Node's navigator has none, and the

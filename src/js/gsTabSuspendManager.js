@@ -9,7 +9,6 @@ import  { gsTabDiscardManager }   from './gsTabDiscardManager.js';
 import  { gsTabQueue }            from './gsTabQueue.js';
 import  { gsUtils }               from './gsUtils.js';
 import  { tgs }                   from './tgs.js';
-import  { shouldSkipAutomaticSuspension } from './fork/automaticSuspensionEligibility.js';
 import  { saveSuspendedTabInfo }  from './fork/suspendedTabPreparation.js';
 
 export const gsTabSuspendManager = (function() {
@@ -511,7 +510,7 @@ export const gsTabSuspendManager = (function() {
   // forceLevel indicates which users preferences to respect when attempting to suspend the tab
   // 1: Suspend if at all possible
   // 2: Respect whitelist, temporary whitelist, form input, pinned tabs, audible preferences, and exclude current active tab
-  // 3: Same as above (2), plus also respect popup windows, internet connectivity, running on battery, and time to suspend=never preferences.
+  // 3: Same as above (2), plus also respect internet connectivity, running on battery, and time to suspend=never preferences.
   async function checkTabEligibilityForSuspension(tab, forceLevel) {
     // gsUtils.log(tab.id, 'gsTabSuspendManager', 'checkTabEligibilityForSuspension', forceLevel);
     if (forceLevel >= 1) {
@@ -549,9 +548,6 @@ export const gsTabSuspendManager = (function() {
           return false;
         }
       }
-    }
-    if (await shouldSkipAutomaticSuspension(tab, forceLevel, gsChrome.windowsGet)) {
-      return false;
     }
     if (forceLevel >= 3) {
       if (await gsStorage.getOption(gsStorage.IGNORE_WHEN_OFFLINE) && !navigator.onLine) {

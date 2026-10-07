@@ -9,6 +9,9 @@ Entries under "Unreleased" live on a feature branch until merged into `master`.
 
 ## [Unreleased]
 
+### Fork integration
+- Sync upstream through `353e1f81`, including startup recovery, atomic preview writes, and locale-code migrations. Let upstream's "Never suspend app windows" setting and "Always suspend" list control app-window protection; retain the fork's automatic-only protection for popup windows.
+
 ### Locale folders Chrome can load
 - Ukrainian and Sinhala now load for the "auto" language. Their `_locales` folders were named `uk-UA` and `si-LK`, which are not codes Chrome recognises, so Chrome skipped them and fell back to English (checked in Chrome for Testing 154 with `--lang=uk` and `--lang=si`: `uk-UA`/`si-LK`/`uk_UA`/`si_LK` load English, `uk`/`si` load the folder). They are now `uk` and `si`. Picking them explicitly in Options → Language already worked, because that path fetches the folder by name.
 - Removed the `fr-FR` locale. Chrome never loaded it either (French users always got `fr`), Crowdin no longer writes to it, and it had drifted from `fr`. It is gone from the Options language selector and from `scripts/check-locales.js` as well.

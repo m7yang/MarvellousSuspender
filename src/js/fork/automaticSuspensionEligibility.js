@@ -8,5 +8,6 @@ export async function shouldSkipAutomaticSuspension(
   }
 
   const tabWindow = await getWindowById(tab.windowId);
-  return tabWindow?.type === 'app' || tabWindow?.type === 'popup';
+  // Upstream owns app-window protection, including its setting and Always Suspend override.
+  return tabWindow?.type === 'popup';
 }

@@ -511,7 +511,7 @@ export const gsTabSuspendManager = (function() {
   // forceLevel indicates which users preferences to respect when attempting to suspend the tab
   // 1: Suspend if at all possible
   // 2: Respect whitelist, temporary whitelist, form input, pinned tabs, audible preferences, and exclude current active tab
-  // 3: Same as above (2), plus also respect standalone app windows, internet connectivity, running on battery, and time to suspend=never preferences.
+  // 3: Same as above (2), plus also respect popup windows, internet connectivity, running on battery, and time to suspend=never preferences.
   async function checkTabEligibilityForSuspension(tab, forceLevel) {
     // gsUtils.log(tab.id, 'gsTabSuspendManager', 'checkTabEligibilityForSuspension', forceLevel);
     if (forceLevel >= 1) {
